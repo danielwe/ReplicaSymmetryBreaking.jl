@@ -16,10 +16,14 @@ struct Quadrature{T}
     end
 end
 
-function Quadrature(::typeof(gausslegendre), n, a, b)
+function GaussLegendre(n, a, b)
     nodes, weights = gausslegendre(n)
     scale, shift = (b - a) / 2, (a + b) / 2
     return Quadrature{promote_type(typeof(a), typeof(b))}(nodes, weights; scale, shift)
+end
+
+function mappedquad(F, values, (; nodes, weights)::Quadrature)  # integrate F.(nodes, values)
+    return sum(((w, n, v),) -> w * F(n, v), zip(weights, nodes, values))
 end
 
 struct RSBCache{T<:AbstractFloat}
