@@ -3,11 +3,22 @@ uuid = "84bcf242-b892-4152-8505-dc344a09f83b"
 authors = ["Daniel Wennberg <daniel.wennberg@gmail.com>"]
 version = "1.0.0-DEV"
 
+[deps]
+DispatchDoctor = "8d63f2c5-f18a-4cf2-ba9d-b3f60fc568c8"
+FastGaussQuadrature = "442a2c76-b920-505d-bb47-c5924d526838"
+
 [compat]
+Aqua = "0.8.7"
+DispatchDoctor = "0.4.11"
+ExplicitImports = "1.9.0"
+FastGaussQuadrature = "1.0.2"
+Test = "1.10"
 julia = "1.10"
 
 [extras]
+Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
+ExplicitImports = "7d51a73a-1435-4ff3-83d9-f097790105c7"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["Test"]
+test = ["Aqua", "ExplicitImports", "Test"]
