@@ -8,35 +8,41 @@ using ReplicaSymmetryBreaking:
     initrsbweights,
     freeenergy!
 
-using Test: @testset, @test
+using Test: @testset, @test, @inferred
 using Aqua: Aqua
-using BenchmarkTools: @ballocated
 using ExplicitImports:
     check_no_implicit_imports,
     check_no_stale_explicit_imports,
     check_no_self_qualified_accesses,
     check_all_explicit_imports_via_owners,
-    check_all_explicit_imports_are_public,
     check_all_qualified_accesses_via_owners,
+    check_all_explicit_imports_are_public,
     check_all_qualified_accesses_are_public
+using JET: @test_opt
 
 @testset "ReplicaSymmetryBreaking.jl" begin
-    @testset "Aqua" Aqua.test_all(ReplicaSymmetryBreaking)
-    @testset "ExplicitImports" begin
-        @test check_no_implicit_imports(ReplicaSymmetryBreaking) === nothing
-        @test check_no_stale_explicit_imports(ReplicaSymmetryBreaking) === nothing
-        @test check_no_self_qualified_accesses(ReplicaSymmetryBreaking) === nothing
-        @test check_all_explicit_imports_via_owners(ReplicaSymmetryBreaking) === nothing
-        @test check_all_explicit_imports_are_public(ReplicaSymmetryBreaking) === nothing
-        @test check_all_qualified_accesses_via_owners(ReplicaSymmetryBreaking) === nothing
-        @test check_all_qualified_accesses_are_public(ReplicaSymmetryBreaking) === nothing
+    let mod=ReplicaSymmetryBreaking
+        @testset "Aqua" Aqua.test_all(mod)
+        @testset "ExplicitImports" begin
+            @test check_no_implicit_imports(mod) === nothing
+            @test check_no_stale_explicit_imports(mod) === nothing
+            @test check_no_self_qualified_accesses(mod) === nothing
+            @test check_all_explicit_imports_via_owners(mod) === nothing
+            @test check_all_qualified_accesses_via_owners(mod) === nothing
+            @test check_all_explicit_imports_are_public(mod) === nothing
+            @test check_all_qualified_accesses_are_public(mod) === nothing
+        end
     end
     let kRSB=6, quad=GaussLegendre(15, 0.0, 7.5)
-        @testset "Allocations β = $β" for β in (10.0, Inf)
-            rsbproblem = SKProblem(; kRSB, β)
-            rsbweights = initrsbweights(rsbproblem)
-            rsbworkspace = RSBWorkspace(rsbproblem, quad)
-            @test 0 == @ballocated freeenergy!($rsbworkspace, $rsbproblem, $rsbweights, $quad) #evals=1 samples=1
+        @testset "β = $β" for β in (10.0, Inf)
+            problem = SKProblem(; kRSB, β)
+            weights = initrsbweights(problem)
+            workspace = RSBWorkspace(problem, quad)
+            @testset "Inference/allocations" begin
+                @inferred freeenergy!(workspace, problem, weights, quad)
+                @test_opt freeenergy!(workspace, problem, weights, quad)
+                @test 0 == @allocations freeenergy!(workspace, problem, weights, quad)
+            end
         end
     end
 end
@@ -54,19 +60,19 @@ using ExplicitImports:
     check_all_qualified_accesses_are_public
 
 @testset "ReplicaSymmetryBreakingTests" begin
-    @testset "ExplicitImports" begin
-        @test check_no_implicit_imports(ReplicaSymmetryBreakingTests, @__FILE__) === nothing
-        @test check_no_stale_explicit_imports(ReplicaSymmetryBreakingTests, @__FILE__) === nothing
-        @test check_no_self_qualified_accesses(ReplicaSymmetryBreakingTests, @__FILE__) === nothing
-        @test check_all_explicit_imports_via_owners(ReplicaSymmetryBreakingTests, @__FILE__) === nothing
-        @test check_all_explicit_imports_are_public(
-            ReplicaSymmetryBreakingTests, @__FILE__;
-            ignore=(:GaussLegendre, :RSBWorkspace, :initrsbweights, :freeenergy!),
-        ) === nothing
-        @test check_all_qualified_accesses_via_owners(ReplicaSymmetryBreakingTests, @__FILE__) === nothing
-        @test check_all_qualified_accesses_are_public(
-            ReplicaSymmetryBreakingTests, @__FILE__;
-            ignore=(:test_all,),
-        ) === nothing
+    let mod=(ReplicaSymmetryBreakingTests, @__FILE__)
+        @testset "ExplicitImports" begin
+            @test check_no_implicit_imports(mod...) === nothing
+            @test check_no_stale_explicit_imports(mod...) === nothing
+            @test check_no_self_qualified_accesses(mod...) === nothing
+            @test check_all_explicit_imports_via_owners(mod...) === nothing
+            @test check_all_qualified_accesses_via_owners(mod...) === nothing
+            let ignore=(:GaussLegendre, :RSBWorkspace, :initrsbweights, :freeenergy!)
+                @test check_all_explicit_imports_are_public(mod...; ignore) === nothing
+            end
+            let ignore=(:test_all,)
+                @test check_all_qualified_accesses_are_public(mod...; ignore) === nothing
+            end
+        end
     end
 end

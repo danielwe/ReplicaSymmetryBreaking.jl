@@ -1,11 +1,10 @@
 module ReplicaSymmetryBreaking
 
-using DispatchDoctor: @stable, @unstable
 using FastGaussQuadrature: gausslegendre
+using LinearAlgebra: dot
+using MappedArrays: mappedarray
 
 export SKProblem
-
-@stable default_mode="error" default_codegen_level="min" begin
 
 struct Quadrature{T}
     nodes::Vector{T}
@@ -22,12 +21,7 @@ function GaussLegendre(n, a, b)
     return Quadrature{promote_type(typeof(a), typeof(b))}(nodes, weights; scale, shift)
 end
 
-@unstable function mappedquad(F, values, (; nodes, weights)::Quadrature)  # integrate F.(nodes, values)
-    return sum(
-        i -> weights[i] * F(nodes[i], values[i]), eachindex(weights, nodes, values);
-        init=zero(eltype(weights)) * zero(F(oneunit(eltype(nodes)), zero(eltype(values)))),
-    )
-end
+quadrature(values, (; weights)::Quadrature) = dot(weights, values)
 
 abstract type AbstractRSBProblem{T<:AbstractFloat} end
 
@@ -37,7 +31,9 @@ struct RSBWorkspace{T<:AbstractFloat}
     dq::Vector{T}
     Gvs::Tuple{Vector{T},Vector{T}}
 
-    function RSBWorkspace((; kRSB, β)::AbstractRSBProblem{T}, (; nodes)::Quadrature{T}) where {T}
+    function RSBWorkspace(
+        (; kRSB, β)::AbstractRSBProblem{T}, (; nodes)::Quadrature{T}
+    ) where {T}
         nG = length(nodes)
         a = zeros(T, kRSB)
         q = zeros(T, kRSB + 1)
@@ -55,7 +51,7 @@ function gaussian(dx, var, expshift=nothing; normalized)
     return normalized ? exp(exponent) : exp(exponent) / gaussZ(var)
 end
 
-@unstable function recursionkernel(μp, μabs, ai, dqi, expshift=nothing; normalized)
+function recursionkernel(μp, μabs, ai, dqi, expshift=nothing; normalized)
     dμp = μp - ai * dqi
     decay2 = -2ai * μabs
     expshift2 = isnothing(expshift) ? decay2 : expshift + decay2
@@ -64,24 +60,28 @@ end
     return g1 + g2
 end
 
-@unstable function recursionmap_local(Gvalues, μabs, ai, dqi, quad)
-    integrand = let μabs=μabs, ai=ai, dqi=dqi
-        integrand(μp, Gμp) = recursionkernel(μp, μabs, ai, dqi, ai * Gμp; normalized=false)
-    end
+function recursionmap_local(Gvalues, μabs, ai, dqi, quad)
+    integrand(μp, Gμp) = recursionkernel(μp, μabs, ai, dqi, ai * Gμp; normalized=false)
     Z = gaussZ(dqi)
     lastval = integrand(quad.nodes[end], Gvalues[end])
     I = if lastval > eps(typeof(lastval))
-        # integrand is leaking outside quad's domain, so we return known asymptotic value
+        # integrand is leaking outside quad's domain, so return the known asymptotic value
         oneunit(eltype(quad.weights)) * oneunit(lastval) / oneunit(Z)
     else
-        mappedquad(integrand, Gvalues, quad) / Z
+        quadrature(mappedarray(integrand, quad.nodes, Gvalues), quad)
     end
     return log(I) / ai
 end
 
-@unstable function recursionmap!(Gvnext, Gv, ai, dqi, quad)
+function recursionmap!(Gvnext, Gv, ai, dqi, quad)
     map!(μ -> recursionmap_local(Gv, μ, ai, dqi, quad), Gvnext, quad.nodes)
     return nothing
+end
+
+function trace(Gv, habs, qlast, quad)
+    za = zero(habs / oneunit(qlast))
+    integrand(μ, Gμ) = (Gμ + μ) * recursionkernel(μ, habs, za, qlast; normalized=false)
+    return -quadrature(mappedarray(integrand, quad.nodes, Gv), quad) / gaussZ(qlast)
 end
 
 function traceterm!((; a, q, dq, Gvs), rsbproblem, quad)
@@ -91,34 +91,29 @@ function traceterm!((; a, q, dq, Gvs), rsbproblem, quad)
         recursionmap!(GvB, GvA, a[i], dq[i], quad)
         GvA, GvB = GvB, GvA
     end
-    integrand = let habs=abs(heff(rsbproblem)), za=zero(eltype(a)), qlast=q[end]
-        integrand(μ, Gμ) = (Gμ + μ) * recursionkernel(μ, habs, za, qlast; normalized=false)
-    end
-    return -mappedquad(integrand, GvA, quad) / gaussZ(q[end])
+    return trace(GvA, abs(heff(rsbproblem)), q[end], quad)
 end
 
 @views function rsbparams!((; a, q, dq), (; β), rsbweights)
     k = length(rsbweights) ÷ 2
-    ξratios = rsbweights[begin:(begin + k - 1)]
-    qratios = rsbweights[(begin + k):end]
-    mappedcumprod!(a, sigmoid, invcompact, ξratios, compact(β))
+    ξratios = mappedarray(sigmoid, rsbweights[begin:(begin + k - 1)])
+    qratios = mappedarray(sigmoid, rsbweights[(begin + k):end])
+    cumprodf!(invcompact, a, ξratios, compact(β))
     if isinf(β)  # q1 = 1 fixed => first qratio trivial and not included
         q[begin] = one(eltype(q))
-        mappedcumprod!(q[(begin + 1):end], sigmoid, identity, qratios)
+        cumprodf!(identity, q[(begin + 1):end], qratios)
     else
-        mappedcumprod!(q, sigmoid, identity, qratios)
+        cumprodf!(identity, q, qratios)
     end
     dq .= q[begin:(end - 1)] .- q[(begin + 1):end]
     return nothing
 end
 
-@unstable function mappedcumprod!(out, fpre, fpost, x, init=one(fpre(oneunit(eltype(x)))))
-    # out .= fpost.(cumprod(fpre.(x)) .* init), but without allocations
-    prev = init
-    for i in eachindex(out, x)
-        this = fpre(x[i]) * prev
-        out[i] = fpost(this)
-        prev = this
+function cumprodf!(f, y, x, init=one(eltype(x)))  # y .= f.(cumprod(x) .* init)
+    current = init
+    for i in eachindex(y, x)
+        current *= x[i]
+        y[i] = f(current)
     end
     return nothing
 end
@@ -160,18 +155,16 @@ heff((; h, J0, M)::SKProblem) = abs(h + J0 * M)
 @views function freeenergy!(rsbworkspace, rsbproblem::SKProblem, rsbweights, quad)
     rsbparams!(rsbworkspace, rsbproblem, rsbweights)
     (; a, q) = rsbworkspace
-    fieldterm = sum(
-        a[i] * ((q[i] - 1)^2 - (q[i + 1] - 1)^2) for i in eachindex(a, q[begin:(end - 1)]);
-        init=zero(eltype(a)) * zero(eltype(q))^2,
-    ) / 4
     (; β, J0, M) = rsbproblem
+    qpotentials = mappedarray(
+        (qi, qj) -> (1 - qi)^2 - (1 - qj)^2, q[begin:(end - 1)], q[(begin + 1):end]
+    )
+    fieldterm = dot(a, qpotentials) / 4
     fieldterm += J0 * (M^2) / 2
     if !isinf(β)
         fieldterm -= β * ((1 - q[begin])^2) / 4
     end
     return fieldterm + traceterm!(rsbworkspace, rsbproblem, quad)
 end
-
-end  # @stable
 
 end  # module
