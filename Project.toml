@@ -13,7 +13,7 @@ OptimizationNLopt = "4e6fcdb7-1186-4e1f-a706-475e75c168bb"
 
 [compat]
 Aqua = "0.8.7"
-Enzyme = "0.12.24"
+Enzyme = "0.12.25"
 ExplicitImports = "1.9.0"
 FastGaussQuadrature = "1.0.2"
 JET = "0.9.6"
@@ -22,6 +22,8 @@ MappedArrays = "0.4.2"
 Optimization = "3.27.0"
 OptimizationNLopt = "0.2.2"
 Test = "1.10"
+TestItemRunner = "1.0.4"
+TestItems = "1.0.0"
 julia = "1.10"
 
 [extras]
@@ -29,6 +31,8 @@ Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
 ExplicitImports = "7d51a73a-1435-4ff3-83d9-f097790105c7"
 JET = "c3a54625-cd67-489e-a8e7-0a5a0ff4e31b"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+TestItemRunner = "f8b46487-2199-4994-9208-9a1283c18c0a"
+TestItems = "1c621080-faea-4a02-84b6-bbd5e436b8fe"
 
 [targets]
-test = ["Aqua", "ExplicitImports", "JET", "Test"]
+test = ["Aqua", "ExplicitImports", "JET", "Test", "TestItemRunner", "TestItems"]
