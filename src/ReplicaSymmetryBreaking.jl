@@ -5,12 +5,7 @@ using FastGaussQuadrature: gausslegendre
 using LinearAlgebra: dot
 using MappedArrays: mappedarray
 using Optimization:
-    OptimizationFunction,
-    OptimizationProblem,
-    AutoEnzyme,
-    MaxSense,
-    SciMLBase,
-    solve
+    OptimizationFunction, OptimizationProblem, AutoEnzyme, MaxSense, SciMLBase, solve
 using OptimizationNLopt: NLopt
 
 export SKProblem
