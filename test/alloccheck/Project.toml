@@ -1,0 +1,7 @@
+[deps]
+AllocCheck = "9b6a8646-10ed-4001-bbdc-1d2f46dfbb1a"
+Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
+ExplicitImports = "7d51a73a-1435-4ff3-83d9-f097790105c7"
+Pkg = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
+ReplicaSymmetryBreaking = "84bcf242-b892-4152-8505-dc344a09f83b"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
