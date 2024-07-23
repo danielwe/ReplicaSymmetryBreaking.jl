@@ -4,17 +4,23 @@ authors = ["Daniel Wennberg <daniel.wennberg@gmail.com>"]
 version = "1.0.0-DEV"
 
 [deps]
+Enzyme = "7da242da-08ed-463a-9acd-ee780be4f1d9"
 FastGaussQuadrature = "442a2c76-b920-505d-bb47-c5924d526838"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 MappedArrays = "dbb5928d-eab1-5f90-85c2-b9b0edb7c900"
+Optimization = "7f7a1694-90dd-40f0-9382-eb1efda571ba"
+OptimizationNLopt = "4e6fcdb7-1186-4e1f-a706-475e75c168bb"
 
 [compat]
 Aqua = "0.8.7"
+Enzyme = "0.12.24"
 ExplicitImports = "1.9.0"
 FastGaussQuadrature = "1.0.2"
 JET = "0.9.6"
 LinearAlgebra = "1.10"
 MappedArrays = "0.4.2"
+Optimization = "3.27.0"
+OptimizationNLopt = "0.2.2"
 Test = "1.10"
 julia = "1.10"
 
