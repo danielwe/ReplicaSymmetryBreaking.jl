@@ -7,22 +7,16 @@
     @test success(run(cmd))
 end
 
-@testitem "@allocations" begin
-    include("commontestsets.jl")
-
-    testallocations(f::F, args) where {F} = (@test 0 == @allocations f(args...))
-    commontestsets(Dict(rsbobjective => testallocations))
-end
-
-@testitem "@inferred & JET.jl" begin
+@testitem "inference & allocations" begin
     include("commontestsets.jl")
     using JET: @test_opt
 
-    function testinferred(f::F, args) where {F}
+    function testinferrednoallocs(f::F, args) where {F}
         @inferred f(args...)
         @test_opt f(args...)
+        @test 0 == @allocations f(args...)
         return nothing
     end
 
-    commontestsets(Dict(rsbobjective => testinferred))
+    commontestsets(Dict(objective => testinferrednoallocs))
 end

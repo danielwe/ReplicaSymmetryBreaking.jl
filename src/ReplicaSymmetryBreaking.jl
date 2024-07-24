@@ -3,12 +3,13 @@ module ReplicaSymmetryBreaking
 using Enzyme: Enzyme
 using FastGaussQuadrature: gausslegendre
 using LinearAlgebra: dot
+using LogExpFunctions: log1pexp, logistic, logit
 using MappedArrays: mappedarray
 using Optimization:
     OptimizationFunction, OptimizationProblem, AutoEnzyme, MaxSense, SciMLBase, solve
 using OptimizationNLopt: NLopt
 
-export SKProblem
+export SKProblem, solve_orderparameters
 
 ### RSB problem types
 
@@ -16,8 +17,8 @@ abstract type AbstractRSBProblem{T<:AbstractFloat} end
 
 ## RSB problems must implement methods for the following functions
 function fieldterm end  # fieldterm(::AbstractRSBProblem, (; a, q))
-function G0 end         # G0(::AbstractRSBProblem, μabs) : trace initial condition
-function heff end       # heff(::AbstractRSBProblem)     : trace effective field
+function G0 end         # G0(::AbstractRSBProblem, μ >= 0): trace initial condition
+function heff end       # heff(::AbstractRSBProblem) >= 0 : trace effective field
 
 struct SKProblem{T} <: AbstractRSBProblem{T}
     k::Int
@@ -42,10 +43,7 @@ SKProblem(; β::T, kwargs...) where {T} = SKProblem{T}(; β, kwargs...)
     return (overlapterm - β * ((1 - q[begin])^2)) / 4
 end
 
-function G0((; β)::SKProblem{T}, μabs::T) where {T}
-    isinf(β) && return zero(T)
-    return log1p(exp(-2β * μabs)) / β
-end
+G0((; β)::SKProblem{T}, μ::T) where {T} = log1pexp(-2β * μ) / β
 
 heff((; h, J0, M)::SKProblem) = abs(h + J0 * M)
 
@@ -72,52 +70,63 @@ quadrature(values, (; weights)::Quadrature) = dot(weights, values)
 
 ## RSB workspace
 
-struct RSBWorkspace{T<:AbstractFloat}
+struct RSBSolver{T,RSBProblem<:AbstractRSBProblem{T}}
+    problem::RSBProblem
+    quad::Quadrature{T}
     a::Vector{T}
     q::Vector{T}
     dq::Vector{T}
-    Gvs::Tuple{Vector{T},Vector{T}}
+    Gs::Tuple{Vector{T},Vector{T}}
+
+    function RSBSolver(problem::AbstractRSBProblem{T}, quad::Quadrature{T}) where {T}
+        (; k) = problem
+        nG = length(quad.nodes)
+        a = zeros(T, k)
+        q = zeros(T, k + 1)
+        dq = zeros(T, k)
+        Gs = (zeros(T, nG), zeros(T, nG))
+        return new{T,typeof(problem)}(problem, quad, a, q, dq, Gs)
+    end
 end
 
-function RSBWorkspace((; k, β)::AbstractRSBProblem{T}, (; nodes)) where {T}
-    (T == eltype(nodes)) || error("incompatible eltypes between RSB problem and quadrature")
-    nG = length(nodes)
-    a = zeros(T, k)
-    q = zeros(T, k + 1)
-    dq = zeros(T, k)
-    Gvs = (zeros(T, nG), zeros(T, nG))
-    return RSBWorkspace{T}(a, q, dq, Gvs)
+function RSBSolver(problem::AbstractRSBProblem{T}; nquad, μmax) where {T}
+    return RSBSolver(problem, GaussLegendre(T, nquad, 0.0, μmax))
 end
 
 ## Define bidirectional map between RSB parameters and optimization state
-function optimizationstate((; a, q)::RSBWorkspace, β)
-    ξfull = [a2ξ(β); a2ξ.(a)]
-    # q[begin] == 1 => first qratio trivial and not included
-    qfull = (q[begin] == 1) ? q : [1; q]
-    return ξq2optimizationstate(ξfull, qfull)
+function getstate((; problem, a, q)::RSBSolver)
+    ξfull = [a2ξ(problem.β); a2ξ.(a)]
+    qfull = if isinf(problem.β)
+        (q[begin] == 1) || error("Inconsistent order parameters: β == Inf but q[begin] != 1")
+        q
+    else
+        [1; q]
+    end
+    return getstate(ξfull, qfull)
 end
 
-@views function ξq2optimizationstate(ξfull, qfull)
+@views function getstate(ξfull, qfull)
     ξratios = invactivation.(ξfull[(begin + 1):end] ./ ξfull[begin:(end - 1)])
     qratios = invactivation.(qfull[(begin + 1):end] ./ qfull[begin:(end - 1)])
     return [ξratios; qratios]
 end
 
-@views function update!((; a, q, dq)::RSBWorkspace, state, β)
+@views function update!((; problem, a, q, dq)::RSBSolver, state)
     k = length(state) ÷ 2
     ξratios = mappedarray(activation, state[begin:(begin + k - 1)])
     qratios = mappedarray(activation, state[(begin + k):end])
-    cumprodf!(ξ2a, a, ξratios, a2ξ(β))
+    cumprodf!(ξ2a, a, ξratios, a2ξ(problem.β))
     if length(q) == length(qratios)
         cumprodf!(identity, q, qratios)
-    else  # β == Inf => q[begin] == 1 => first qratio trivial and not included
-          # (no need to check that lengths match, cumprodf! will error otherwise)
-        q[begin] = one(eltype(q))
+    else
+        # β == Inf => q[1] == 1 => first qratio trivial and not included (no need to check
+        # that lengths match, cumprodf! will error otherwise)
+        q[begin] = 1
         cumprodf!(identity, q[(begin + 1):end], qratios)
     end
-    # Using map! instead of broadcasting here to elide an aliasing check and thus eliminate
-    # an allocating codepath (the path would never be taken in practice, but can trigger
-    # allocation detection in unit tests, so might as well avoid it)
+    # Use map! instead of broadcasting here to elide an aliasing check and thus eliminate an
+    # allocating codepath (the path would never be taken, but could trigger allocation
+    # detection in unit tests, so better to avoid it)
     map!(-, dq, q[begin:(end - 1)], q[(begin + 1):end])
     return nothing
 end
@@ -131,64 +140,64 @@ function cumprodf!(f, y, x, init=one(eltype(x)))  # y .= f.(cumprod(x) .* init)
     return nothing
 end
 
-a2ξ(a) = compactify(a)
-ξ2a(ξ) = invcompactify(ξ)
-activation(weight) = sigmoid(weight)             # identity(ratio)
-invactivation(ratio) = invsigmoid(ratio)         # identity(ratio)
-upperbounds(state) = nothing  # oneunit.(state)  # should match activation
-lowerbounds(state) = nothing  # zero.(state)     # should match activation
+a2ξ(a) = isinf(a) ? one(a) : a / (1 + a)
+ξ2a(ξ) = isone(ξ) ? oftype(one(ξ), Inf) : ξ / (1 - ξ)
 
-compactify(x) = isinf(x) ? one(x) : x / (1 + x)
-invcompactify(x) = isone(x) ? oftype(one(x), Inf) : x / (1 - x)
-sigmoid(x) = inv(1 + exp(-x))
-invsigmoid(x) = -log(inv(x) - 1)
+# logistic transform, no bounds
+activation(weight) = logistic(weight)
+invactivation(ratio) = logit(ratio)
+bounds(state) = (; lb=nothing, ub=nothing)
+
+# no transform, hard bounds
+# activation(weight) = identity(weight)
+# invactivation(ratio) = identity(ratio)
+# bounds(state) = (; lb=zero.(state), ub=oneunit.(state))
 
 ### Free energy
 
-function freeenergy(problem, workspace, quad)
-    return fieldterm(problem, workspace) + traceterm(problem, workspace, quad)
-end
+freeenergy(solver::RSBSolver) = fieldterm(solver.problem, solver) + traceterm(solver)
 
-function traceterm(problem, (; a, q, dq, Gvs), quad)
-    Gvnext, Gv = Gvs
-    map!(μ -> G0(problem, μ), Gv, quad.nodes)
+function traceterm((; problem, quad, a, q, dq, Gs))
+    Gnext, G = Gs
+    map!(μ -> G0(problem, μ), G, quad.nodes)
     for i in eachindex(a, dq)
-        recursionmap!(Gvnext, Gv, a[i], dq[i], quad)
-        Gvnext, Gv = Gv, Gvnext
+        Gmap!(Gnext, G, (; ai=a[i], dqi=dq[i]), quad)
+        Gnext, G = G, Gnext
     end
-    return trace(Gv, abs(heff(problem)), q[end], quad)
+    return trace(G, heff(problem), q[end], quad)
 end
 
-function trace(Gv, habs, qlast, quad)
-    za = zero(habs / oneunit(qlast))
-    integrand(μ, Gμ) = (Gμ + μ) * recursionkernel(μ, habs, za, qlast; normalized=false)
-    return -quadrature(mappedarray(integrand, quad.nodes, Gv), quad) / gaussnorm(qlast)
+function trace(G, h, qlast, quad)
+    adqlast = (; ai=zero(h / oneunit(qlast)), dqi=qlast)
+    integrand(ν, Gν) = (Gν + ν) * Gmapkernel(ν, h, adqlast; normalized=false)
+    return -quadrature(mappedarray(integrand, quad.nodes, G), quad) / gaussnorm(qlast)
 end
 
-function recursionmap!(Gvnext, Gv, ai, dqi, quad)
-    map!(μ -> recursionmap_local(Gv, μ, ai, dqi, quad), Gvnext, quad.nodes)
+function Gmap!(Gnext, G, adqi, quad)
+    map!(μ -> Gmap_point(μ, G, adqi, quad), Gnext, quad.nodes)
     return nothing
 end
 
-function recursionmap_local(Gvalues, μabs, ai, dqi, quad)
-    integrand(μp, Gμp) = recursionkernel(μp, μabs, ai, dqi, ai * Gμp; normalized=false)
+function Gmap_point(μ, G, adqi, quad)
+    (; ai, dqi) = adqi
     Z = gaussnorm(dqi)
-    lastval = integrand(quad.nodes[end], Gvalues[end])
-    I = if lastval > eps(typeof(lastval))  # TODO: adapt threshold to tol?
+    integrand(ν, Gν) = Gmapkernel(ν, μ, adqi, ai * Gν; normalized=false)
+    endpointvalue = abs(integrand(quad.nodes[end], G[end]))
+    I = if endpointvalue > eps(typeof(endpointvalue))  # TODO: adapt threshold based on tol?
         # integrand is leaking outside quad's domain, so return the known asymptotic value
-        oneunit(eltype(quad.weights)) * oneunit(lastval) / oneunit(Z)
+        oneunit(eltype(quad.weights)) * oneunit(endpointvalue) / oneunit(Z)
     else
-        quadrature(mappedarray(integrand, quad.nodes, Gvalues), quad)
+        quadrature(mappedarray(integrand, quad.nodes, G), quad)
     end
     return log(I) / ai
 end
 
-function recursionkernel(μp, μabs, ai, dqi, expshift=nothing; normalized)
-    dμp = μp - ai * dqi
-    decay2 = -2ai * μabs
+function Gmapkernel(ν, μ, (; ai, dqi), expshift=nothing; normalized)
+    dν = ν - ai * dqi
+    decay2 = -2ai * μ
     expshift2 = isnothing(expshift) ? decay2 : expshift + decay2
-    g1 = gaussian(μabs - dμp, dqi, expshift; normalized)
-    g2 = gaussian(μabs + dμp, dqi, expshift2; normalized)
+    g1 = gaussian(μ - dν, dqi, expshift; normalized)
+    g2 = gaussian(μ + dν, dqi, expshift2; normalized)
     return g1 + g2
 end
 
@@ -202,43 +211,45 @@ gaussnorm(var) = sqrt(2(π * var))
 
 ### Optimization
 
-function solve_rsbparams(
-    problem::AbstractRSBProblem{T}; nquad=500, μmax=(20.0 / 3), kwargs...
-) where {T}
-    quad = GaussLegendre(T, nquad, 0.0, μmax)
-    workspace = RSBWorkspace(problem, quad)
-    state = solve_state(problem, workspace, quad; kwargs...)
-    update!(workspace, state, problem.β)
-    return (; workspace.a, workspace.q)
+function solve_orderparameters(problem::AbstractRSBProblem; nquad=26, μmax=5.0, kwargs...)
+    solver = RSBSolver(problem; nquad, μmax)
+    state = solve_state(solver; kwargs...)
+    update!(solver, state)
+    return (; solver.a, solver.q)
 end
 
-function solve_state(problem, workspace, quad; tol=16.0^(-11))
-    f = OptimizationFunction{true}(rsbobjective, AutoEnzyme())
-    u0 = initoptimizationstate(problem)
-    p = (problem, workspace, quad)
-    prob = OptimizationProblem(
-        f, u0, p; sense=MaxSense, ub=upperbounds(u0), lb=lowerbounds(u0)
-    )
-    sol = solve(prob, NLopt.LD_LBFGS(); abstol=tol, reltol=tol)
-    if !SciMLBase.successful_retcode(sol)
-        error("Optimization failed with retcode $(sol.retcode)")
+function solve_state(solver::RSBSolver; tol=16.0^(-11), showresult=(), io=stdout)
+    f = OptimizationFunction(objective, AutoEnzyme())
+    u0 = initstate(solver.problem)
+    prob = OptimizationProblem(f, u0, solver; sense=MaxSense, bounds(u0)...)
+    result = solve(prob, NLopt.LD_LBFGS(); abstol=tol, reltol=tol)
+    if !SciMLBase.successful_retcode(result)
+        error("Optimization failed with retcode $(result.retcode)")
     end
-    return sol.u
+    for i in eachindex(showresult)
+        if i != firstindex(showresult)
+            println(io)
+        end
+        show(io, MIME"text/plain"(), getproperty(result, showresult[i]))
+        println(io)
+    end
+    return result.u
 end
 
-function rsbobjective(state, (problem, workspace, quad))
-    update!(workspace, state, problem.β)
-    return freeenergy(problem, workspace, quad)
+function objective(state, solver)
+    update!(solver, state)
+    return freeenergy(solver)
 end
 
-@views function initoptimizationstate((; k, β)::AbstractRSBProblem)
-    nq = k + (isinf(β) ? 2 : 3)  # q1 = 1 fixed => discard q0
+@views function initstate((; k, β)::AbstractRSBProblem{T}) where {T}
     ξ0 = a2ξ(β)
-    # These maps from linear ranges are simple heuristics that get us a little closer to the
-    # general shape of the solution
-    ξfull = (range(ξ0, zero(ξ0), k + 2)[begin:(end - 1)]).^inv(sqrt(2))
-    qfull = sin.(range(π / 2, 0.0, nq)[begin:(end - 1)])
-    return ξq2optimizationstate(ξfull, qfull)
+    nq = k + (isinf(β) ? 2 : 3)  # β = Inf => q1 = 1 => discard q0 = 1
+    ξrange = range(ξ0, zero(ξ0), k + 2)[begin:(end - 1)]
+    qrange = range(oneunit(T), zero(T), nq)[begin:(end - 1)]
+    # simple heuristics for a better initial guess (monotonic, 0 -> 0, 1 -> 1)
+    ξfull = map(x -> x^inv(sqrt(2)), ξrange)
+    qfull = map(x -> sinpi(x / 2), qrange)
+    return getstate(ξfull, qfull)
 end
 
 end  # module

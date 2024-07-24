@@ -1021,7 +1021,7 @@ uuid = "189a3867-3050-52da-a836-e630ba90ab69"
 version = "1.2.2"
 
 [[deps.ReplicaSymmetryBreaking]]
-deps = ["Enzyme", "FastGaussQuadrature", "LinearAlgebra", "MappedArrays", "Optimization", "OptimizationNLopt"]
+deps = ["Enzyme", "FastGaussQuadrature", "LinearAlgebra", "LogExpFunctions", "MappedArrays", "Optimization", "OptimizationNLopt"]
 path = "../.."
 uuid = "84bcf242-b892-4152-8505-dc344a09f83b"
 version = "1.0.0-DEV"
