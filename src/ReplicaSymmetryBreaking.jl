@@ -94,7 +94,7 @@ function RSBSolver(problem::AbstractRSBProblem{T}; nquad, μmax) where {T}
 end
 
 ## Define bidirectional map between RSB parameters and optimization state
-function getstate((; problem, a, q)::RSBSolver)
+function state((; problem, a, q)::RSBSolver)
     ξfull = [a2ξ(problem.β); a2ξ.(a)]
     qfull = if isinf(problem.β)
         (q[begin] == 1) || error("Inconsistent order parameters: β == Inf but q[begin] != 1")
@@ -102,19 +102,19 @@ function getstate((; problem, a, q)::RSBSolver)
     else
         [1; q]
     end
-    return getstate(ξfull, qfull)
+    return state(ξfull, qfull)
 end
 
-@views function getstate(ξfull, qfull)
+@views function state(ξfull, qfull)
     ξratios = invactivation.(ξfull[(begin + 1):end] ./ ξfull[begin:(end - 1)])
     qratios = invactivation.(qfull[(begin + 1):end] ./ qfull[begin:(end - 1)])
     return [ξratios; qratios]
 end
 
-@views function update!((; problem, a, q, dq)::RSBSolver, state)
-    k = length(state) ÷ 2
-    ξratios = mappedarray(activation, state[begin:(begin + k - 1)])
-    qratios = mappedarray(activation, state[(begin + k):end])
+@views function update!((; problem, a, q, dq)::RSBSolver, u)
+    k = length(u) ÷ 2
+    ξratios = mappedarray(activation, u[begin:(begin + k - 1)])
+    qratios = mappedarray(activation, u[(begin + k):end])
     cumprodf!(ξ2a, a, ξratios, a2ξ(problem.β))
     if length(q) == length(qratios)
         cumprodf!(identity, q, qratios)
@@ -146,12 +146,12 @@ a2ξ(a) = isinf(a) ? one(a) : a / (1 + a)
 # logistic transform, no bounds
 activation(weight) = logistic(weight)
 invactivation(ratio) = logit(ratio)
-bounds(state) = (; lb=nothing, ub=nothing)
+bounds(u) = (; lb=nothing, ub=nothing)
 
 # no transform, hard bounds
 # activation(weight) = identity(weight)
 # invactivation(ratio) = identity(ratio)
-# bounds(state) = (; lb=zero.(state), ub=oneunit.(state))
+# bounds(u) = (; lb=zero.(u), ub=oneunit.(u))
 
 ### Free energy
 
@@ -213,8 +213,8 @@ gaussnorm(var) = sqrt(2(π * var))
 
 function solve_orderparameters(problem::AbstractRSBProblem; nquad=26, μmax=5.0, kwargs...)
     solver = RSBSolver(problem; nquad, μmax)
-    state = solve_state(solver; kwargs...)
-    update!(solver, state)
+    u = solve_state(solver; kwargs...)
+    update!(solver, u)
     return (; solver.a, solver.q)
 end
 
@@ -236,8 +236,8 @@ function solve_state(solver::RSBSolver; tol=16.0^(-11), showresult=(), io=stdout
     return result.u
 end
 
-function objective(state, solver)
-    update!(solver, state)
+function objective(u, solver)
+    update!(solver, u)
     return freeenergy(solver)
 end
 
@@ -249,7 +249,7 @@ end
     # simple heuristics for a better initial guess (monotonic, 0 -> 0, 1 -> 1)
     ξfull = map(x -> x^inv(sqrt(2)), ξrange)
     qfull = map(x -> sinpi(x / 2), qrange)
-    return getstate(ξfull, qfull)
+    return state(ξfull, qfull)
 end
 
 end  # module
