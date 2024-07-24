@@ -415,6 +415,21 @@ The two last expressions above suggest two different ways of looking at the inte
 It's tempting to gravitate towards the convolution formulation to take advantage of the ``\mathcal{O}(N \log N)`` scaling of FFT rather than the ``\mathcal{O}(N^2)`` scaling of a naive approach (here ``N`` is the number of points at which the functions are sampled in their discrete representation). One potential problem with this is that ``\Theta(\mu')(e^{a\mathcal{G}'(\mu')} - 1)`` is discontinuous at ``\mu' = 0``, requiring a lot of high-frequency content for an accurate frequency space representation. For example, the Fourier transform of ``\Theta(\mu')e^{-b\mu'}`` asymptotes to ``1 / i\omega`` at large ``|\omega|``, a very slow decay. Moreover, convolutions and FFT require uniform sampling, while numerical integration (quadrature) can sample non-uniformly to achieve better accuracy with fewer samples. Thus, the gain in scaling might ultimately be negated by the need for a larger ``N``.
 """
 
+# ╔═╡ ba321c1e-d0da-4339-9426-0683d9979745
+begin
+	const β = inv(0.03)
+	const k = 37
+	const ξ0 = a2ξ(β)
+	const ξs = (range(ξ0, zero(ξ0), k + 2)[begin:(end - 1)]).^inv(sqrt(2))
+	const as_ = ξ2a.(ξs[(begin + 1):end])
+	const qs_ = if isinf(β)  # q1 = 1 fixed?
+		sin.(range(π / 2, 0.0, k + 2)[begin:(end - 1)])
+	else
+		sin.(range(π / 2, 0.0, k + 3)[(begin + 1):(end - 1)])
+	end
+	const dqs_ = diff(-qs_)
+end;
+
 # ╔═╡ d6bbf6f7-8b39-46fc-b15c-3a9f53f630d9
 md"""
 #### Reference implementation of recursive integrals
@@ -458,6 +473,12 @@ const μmax = 8.2;  #6.2 + 8.5sqrt(maximum(dqs_));
 
 # ╔═╡ 5036c3f1-e753-47db-8612-0dd3becb600c
 const Gdomain = 0.0..μmax;  # For plots
+
+# ╔═╡ 92fbae7f-07ee-48c6-aed7-0865b05df6d7
+@stable function G0(μ)
+	isinf(β) && return zero(μ)
+	return log1p(exp(-2β * abs(μ))) / β
+end;
 
 # ╔═╡ ef8f4ca8-5f80-4c5f-9490-f97f34db517e
 @stable function wgaussian(dx, var, expshift=nothing)
@@ -537,6 +558,25 @@ end;
 	end
 end;
 
+# ╔═╡ 5ac52242-0e89-4a6a-a254-bb8f1685348d
+const G1_quadgk_lazy = Gmap_quadgk_lazy(G0, as_[1], dqs_[1]);
+
+# ╔═╡ 6cacb213-1886-4385-bb52-8b34dcda686e
+begin
+	const Gs_quadgk = let 
+		ncalls, Gs = countintegrandcalls() do
+			Gs_ = [G0, Gmap_quadgk(G0, as_[1], dqs_[1])]
+			for i in 2:k
+				push!(Gs_, Gmap_quadgk(last(Gs_), as_[i], dqs_[i]))
+			end
+			Gs_
+		end
+		@show ncalls
+		Gs
+	end
+	const G1_quadgk = Gs_quadgk[2]
+end;
+
 # ╔═╡ 1a064d9a-ff05-4097-891f-0c97b1493850
 function Gplot(I::Interval, Gs...; legend=true, legendkws...)
 	fig = Figure()
@@ -550,6 +590,9 @@ function Gplot(I::Interval, Gs...; legend=true, legendkws...)
 	end
 	return Makie.FigureAxisPlot(fig, ax, p)
 end;
+
+# ╔═╡ 69dea82e-fa2a-480b-92d3-a184f87a48eb
+Gplot(Gdomain, G0, G1_quadgk_lazy)
 
 # ╔═╡ 2606a0a5-6062-4f7b-97ea-80dfe1aa4927
 md"""
@@ -752,6 +795,23 @@ let μconvmax=0.43, n=2^23
 	end
 end;
 
+# ╔═╡ 0ed97298-396b-43a7-bb5e-38aee668d50d
+let scatteroptions=(; markersize=5)
+	μs = subsample(μconv)
+	G1μ = subsample(Gmap_conv(G0.(μconv), as_[1], dqs_[1]))
+	
+	μI = first(μs)..last(μs)
+
+	fig, ax = Gplot(μI, G0, G1_quadgk_lazy; legend=false)
+	scatter!(
+		ax, μs, G1μ;
+		label=L"\mathcal{G}_1^{\text{DFT}}(\mu)",
+		color=Cycled(2), scatteroptions...,
+	)
+	axislegend(ax)
+	fig
+end
+
 # ╔═╡ bde42de4-9245-4594-844e-16a3a54d3e3f
 md"""
 That looks decent to the naked eye, but how accurate is it actually? Let's investigate. (Note that I'm subsampling for the plots both above and below; the functions were sampled much more densely in the calculations.)
@@ -791,6 +851,22 @@ begin
 		return diffplot(f.(xs), f_approx.(xs), xs; kwargs...)
 	end
 end;
+
+# ╔═╡ 2986bf5b-fb0f-4791-85f6-2517e9ab2d81
+let
+	μs = subsample(μconv)
+	G1μconv = subsample(Gmap_conv(G0.(μconv), as_[1], dqs_[1]))
+	ncalls, G1μ = countintegrandcalls() do
+		# Using lazyG1, not interpolated, to count integrand calls
+		G1_quadgk_lazy.(μs)
+	end
+	@show ncalls / length(μs)
+	diffplot(
+		G1μ, G1μconv, μs;
+		flabel=L"\mathcal{G}_1", approxlabel="DFT", xlabel=L"\mu",
+		relativeto=first, relativetolabel="0",
+	)
+end
 
 # ╔═╡ f769c886-ad0d-4d7a-9977-fed541c476cc
 md"""
@@ -843,6 +919,33 @@ let n=128, (lx, lw)=gausslaguerre(n)
 	global const lweights = lscale * lw
 end;
 
+# ╔═╡ 249a427b-c112-4d17-8889-db94c72a7225
+begin
+	@stable function Gmap_laguerre(G, μ, a, dq)
+		lastfval = Gintegrand(G, lnodes[end], μ, a, dq)
+		I = if (sqrt(2π * dq) * lastfval) > eps(typeof(lastfval))
+			# We're leaking integrand. At this point we know the integral is 1.
+			oneunit(eltype(lweights)) * oneunit(lastfval)
+		else
+			fvals = Gintegrand.(G, lnodes, μ, a, dq, lnodes ./ lscale)
+			dot(lweights, fvals)
+		end
+		return log(I) / a
+	end
+	
+	@stable G1_laguerre(μ) = Gmap_laguerre(G0, μ, as_[1], dqs_[1])
+end;
+
+# ╔═╡ 8e10cd1a-4e0f-4be2-8a43-d890df758b8e
+Gplot(Gdomain, G0, G1_laguerre)
+
+# ╔═╡ 53d18dc9-bb10-4fdc-a0c9-c46b792764a7
+diffplot(
+	G1_quadgk, G1_laguerre, lnodes[lnodes .< μmax];
+	flabel=L"\mathcal{G}_1", approxlabel="Laguerre", xlabel=L"\mu",
+	relativeto=first, relativetolabel="0"
+)
+
 # ╔═╡ cdb60bf4-2e1a-4bd8-b4bc-95ec4b85d83a
 md"""
 Alright, 128 nodes gives pretty good accuracy up to ranges where the true value is as good as zero. At that point convergence suffers until we reach the point where we clamp to zero where the integrand starts to measurably leak outside the nodes (which we can do because we know that the asymptotic value of the integral is ``1``). For this integral we could simply clamp earlier, but if we want to keep the same nodes allt the way up to ``i = 37``, that might be discarding nontrivial non-noise values, so the proper solution is to increase the number of nodes.
@@ -874,6 +977,9 @@ function quadplot(G, μ, a, dq, nodes; integrand=Gintegrand, legendkws...)
 	return Makie.FigureAxisPlot(fig, ax, p)
 end;
 
+# ╔═╡ 08c3e556-63d3-4f22-b69e-5be3f7a99e98
+quadplot(G0, 5.0, as_[1], dqs_[1], lnodes[lnodes .< μmax]; position=:lt)
+
 # ╔═╡ 6a8da0f5-e43f-435f-a326-2eee8560859e
 md"""
 The clearly shows the increasing undersampling as we increase ``\mu`` (i.e., shift the integrand right).
@@ -895,6 +1001,37 @@ let n=128, (ux, uw)=gausslegendre(n)  # [-1, 1]
 	global const tnodes = μmax * tx
 	global const tweights = μmax * tw
 end;
+
+# ╔═╡ 8e6e8a69-1677-4e6f-a0bc-0d5304b83263
+begin
+	@stable @views function Gmap_legendre(G, μ, a, dq)
+		lastfval = Gintegrand(G, tnodes[end], μ, a, dq)
+		I = if (sqrt(2π * dq) * lastfval) > eps(typeof(lastfval))
+			# We're leaking integrand. At this point we know the integral is 1.
+			oneunit(eltype(tweights)) * oneunit(lastfval)
+		else
+			fvals = Gintegrand.(G, tnodes[begin:(end - 1)], μ, a, dq)
+			push!(fvals, lastfval)
+			dot(tweights, fvals)
+		end
+		return log(I) / a
+	end
+	
+	@stable G1_legendre(μ) = Gmap_legendre(G0, μ, as_[1], dqs_[1])
+end;
+
+# ╔═╡ 31310c3f-6269-49df-8aef-9a60ace637dc
+Gplot(Gdomain, G0, G1_legendre)
+
+# ╔═╡ 4a659c8b-4b36-4a39-a7c8-bc49a0770e51
+diffplot(
+	G1_quadgk, G1_legendre, tnodes;
+	flabel=L"\mathcal{G}_1", approxlabel="Legendre", xlabel=L"\mu",
+	relativeto=first, relativetolabel="0",
+)
+
+# ╔═╡ b5819306-7e49-4139-a22b-e426980d0ec4
+quadplot(G0, 5.0, as_[1], dqs_[1], tnodes; position=:lt)
 
 # ╔═╡ 24bd7873-96b1-4462-87af-0f132752195b
 md"""
@@ -921,6 +1058,37 @@ let
 	@show length(snodes[snodes .> μmax])
 end;
 
+# ╔═╡ e49c231b-2bfd-4986-8c80-2715e4ebb4d3
+begin
+	@stable @views function Gmap_legendre_stretched(G, μ, a, dq)
+		lastfval = Gintegrand(G, snodes[end], μ, a, dq)
+		I = if sqrt(2π * dq) * lastfval > eps(typeof(lastfval))
+			# We're leaking integrand. At this point we know the integral is 1.
+			oneunit(eltype(sweights)) * oneunit(lastfval)
+		else
+			fvals = Gintegrand.(G, snodes[begin:(end - 1)], μ, a, dq)
+			push!(fvals, lastfval)
+			dot(sweights, fvals)
+		end
+		return log(I) / a
+	end
+	
+	@stable G1_legendre_stretched(μ) = Gmap_legendre_stretched(G0, μ, as_[1], dqs_[1])
+end;
+
+# ╔═╡ cdb6f1e9-c420-42dc-b06f-5e235ee07e8f
+Gplot(Gdomain, G0, G1_legendre_stretched)
+
+# ╔═╡ d8aa9d5b-4363-4c55-80f1-b7d8eb15d347
+diffplot(
+	G1_quadgk, G1_legendre_stretched, snodes[snodes .< μmax];
+	flabel=L"\mathcal{G}_1", approxlabel="stretched", xlabel=L"\mu",
+	relativeto=first, relativetolabel="0", legendposition=:rt,
+)
+
+# ╔═╡ d2b13b6e-2b5c-465c-a647-344f3495867b
+quadplot(G0, 5.0, as_[1], dqs_[1], snodes[snodes .< μmax]; position=:lt)
+
 # ╔═╡ 9f18c4cd-152c-4ec4-84b3-5e868fc0b5a9
 md"""
 This is a lot worse than Gauss-Laguerre. Convergence drops off sooner and large oscillations appear way below `μmax`. Node density is way too low in the right 3/4 of the effective domain, while 38 of 128 nodes are wasting away in the barren gloom of ``\mu > \mu_{\text{max}}``; still, if we wanted to increase density across the interval we'd have to increase the scaling factor and push more nodes out to waste. This is abad idea. Moving on.
@@ -943,6 +1111,38 @@ But that's a lot of talk. Let's see the receipts.
 let n=128
 	global const hnodes, hweights = gausshermite(n; normalize=true)
 end;
+
+# ╔═╡ 01780f9b-95a9-4601-82ca-10af89a10375
+begin
+	@stable function Ghintegrand(G, μp, μ, a, dq)
+		dμ = μ - μp
+		return exp(a * (G(dμ) + abs(dμ) - abs(μ) - a * dq / 2))
+	end
+	
+	@stable function Ghfullintegrand(G, μp, μ, a, dq)  # Just for plots
+		return Ghintegrand(G, μp, μ, a, dq) * exp(-μp^2 / (2dq)) / sqrt(2π * dq)
+	end
+	
+	@stable function Gmap_hermite(G, μ, a, dq)
+		fvals = Ghintegrand.(G, sqrt(dq) .* hnodes, μ, a, dq)
+		return log(dot(hweights, fvals)) / a
+	end
+	
+	@stable G1_hermite(μ) = Gmap_hermite(G0, μ, as_[1], dqs_[1])
+end;
+
+# ╔═╡ 8177c265-91fb-4cd7-8652-f4cfb3c8aa2f
+Gplot(Gdomain, G0, G1_hermite)
+
+# ╔═╡ b12cd52d-1f43-4def-9a92-b425526e4a28
+diffplot(
+	G1_quadgk, G1_hermite, sqrt(dqs_[1]) * hnodes;
+	flabel=L"\mathcal{G}_1", approxlabel="Hermite", xlabel=L"\mu",
+	relativeto=(_ -> G1_quadgk(0.0)), relativetolabel="0",
+)
+
+# ╔═╡ 12f69cae-7017-4fde-89ea-54f701b4bd68
+quadplot(G0, 0.03, as_[1], dqs_[1], sqrt(dqs_[1]) * hnodes; integrand=Ghfullintegrand)
 
 # ╔═╡ 16e88b60-d354-4ba9-83a9-cbc53c4d17b6
 md"""
@@ -993,6 +1193,35 @@ begin
 	
 	@stable Gmap(Gv, a, dq) = map(μp -> Gmap_local(Gv, μp, a, dq), nodes)
 end;
+
+# ╔═╡ 36c3f5a2-7fcc-4b5a-9109-25e5a994d1c3
+Gvs = let
+	Gvs = [G0.(nodes)]
+	for i in 1:k
+		push!(Gvs, Gmap(last(Gvs), as_[i], dqs_[i]))
+	end
+	Gvs
+end;
+
+# ╔═╡ 06ff0708-675d-4008-9812-e35d785fe054
+let
+	fig = Figure()
+	ax = Axis(fig[1, 1])
+	for Gv in Gvs
+		lines!(ax, nodes, Gv)
+	end
+	fig
+end
+
+# ╔═╡ 223aa38b-ee9e-4da8-9d19-9c440ee15ca5
+let i=k, a=as_[i]
+	diffplot(
+		# Gs_quadgk[i + 1].(nodes), Gvs[i + 1], nodes;
+		exp.(a .* Gs_quadgk[i + 1].(nodes)), exp.(a .* Gvs[i + 1]), nodes;
+		flabel=L"\mathcal{G}_{%$i}", xlabel=L"\mu", approxlabel="Legendre",
+		relativeto=first, relativetolabel=L"\mu",
+	)
+end
 
 # ╔═╡ ad934872-4b43-47a1-b98b-cc848ff2c3b3
 md"""
@@ -1083,235 +1312,6 @@ begin
 	@stable sigmoid(x) = inv(1 + exp(-x))
 	@stable invsigmoid(x) = -log(inv(x) - 1)
 end;
-
-# ╔═╡ ba321c1e-d0da-4339-9426-0683d9979745
-begin
-	const β = inv(0.03)
-	const k = 37
-	const ξ0 = a2ξ(β)
-	const ξs = (range(ξ0, zero(ξ0), k + 2)[begin:(end - 1)]).^inv(sqrt(2))
-	const as_ = ξ2a.(ξs[(begin + 1):end])
-	const qs_ = if isinf(β)  # q1 = 1 fixed?
-		sin.(range(π / 2, 0.0, k + 2)[begin:(end - 1)])
-	else
-		sin.(range(π / 2, 0.0, k + 3)[(begin + 1):(end - 1)])
-	end
-	const dqs_ = diff(-qs_)
-end;
-
-# ╔═╡ 92fbae7f-07ee-48c6-aed7-0865b05df6d7
-@stable function G0(μ)
-	isinf(β) && return zero(μ)
-	return log1p(exp(-2β * abs(μ))) / β
-end;
-
-# ╔═╡ 5ac52242-0e89-4a6a-a254-bb8f1685348d
-const G1_quadgk_lazy = Gmap_quadgk_lazy(G0, as_[1], dqs_[1]);
-
-# ╔═╡ 69dea82e-fa2a-480b-92d3-a184f87a48eb
-Gplot(Gdomain, G0, G1_quadgk_lazy)
-
-# ╔═╡ 6cacb213-1886-4385-bb52-8b34dcda686e
-begin
-	const Gs_quadgk = let 
-		ncalls, Gs = countintegrandcalls() do
-			Gs_ = [G0, Gmap_quadgk(G0, as_[1], dqs_[1])]
-			for i in 2:k
-				push!(Gs_, Gmap_quadgk(last(Gs_), as_[i], dqs_[i]))
-			end
-			Gs_
-		end
-		@show ncalls
-		Gs
-	end
-	const G1_quadgk = Gs_quadgk[2]
-end;
-
-# ╔═╡ 0ed97298-396b-43a7-bb5e-38aee668d50d
-let scatteroptions=(; markersize=5)
-	μs = subsample(μconv)
-	G1μ = subsample(Gmap_conv(G0.(μconv), as_[1], dqs_[1]))
-	
-	μI = first(μs)..last(μs)
-
-	fig, ax = Gplot(μI, G0, G1_quadgk_lazy; legend=false)
-	scatter!(
-		ax, μs, G1μ;
-		label=L"\mathcal{G}_1^{\text{DFT}}(\mu)",
-		color=Cycled(2), scatteroptions...,
-	)
-	axislegend(ax)
-	fig
-end
-
-# ╔═╡ 2986bf5b-fb0f-4791-85f6-2517e9ab2d81
-let
-	μs = subsample(μconv)
-	G1μconv = subsample(Gmap_conv(G0.(μconv), as_[1], dqs_[1]))
-	ncalls, G1μ = countintegrandcalls() do
-		# Using lazyG1, not interpolated, to count integrand calls
-		G1_quadgk_lazy.(μs)
-	end
-	@show ncalls / length(μs)
-	diffplot(
-		G1μ, G1μconv, μs;
-		flabel=L"\mathcal{G}_1", approxlabel="DFT", xlabel=L"\mu",
-		relativeto=first, relativetolabel="0",
-	)
-end
-
-# ╔═╡ 249a427b-c112-4d17-8889-db94c72a7225
-begin
-	@stable function Gmap_laguerre(G, μ, a, dq)
-		lastfval = Gintegrand(G, lnodes[end], μ, a, dq)
-		I = if (sqrt(2π * dq) * lastfval) > eps(typeof(lastfval))
-			# We're leaking integrand. At this point we know the integral is 1.
-			oneunit(eltype(lweights)) * oneunit(lastfval)
-		else
-			fvals = Gintegrand.(G, lnodes, μ, a, dq, lnodes ./ lscale)
-			dot(lweights, fvals)
-		end
-		return log(I) / a
-	end
-	
-	@stable G1_laguerre(μ) = Gmap_laguerre(G0, μ, as_[1], dqs_[1])
-end;
-
-# ╔═╡ 8e10cd1a-4e0f-4be2-8a43-d890df758b8e
-Gplot(Gdomain, G0, G1_laguerre)
-
-# ╔═╡ 53d18dc9-bb10-4fdc-a0c9-c46b792764a7
-diffplot(
-	G1_quadgk, G1_laguerre, lnodes[lnodes .< μmax];
-	flabel=L"\mathcal{G}_1", approxlabel="Laguerre", xlabel=L"\mu",
-	relativeto=first, relativetolabel="0"
-)
-
-# ╔═╡ 08c3e556-63d3-4f22-b69e-5be3f7a99e98
-quadplot(G0, 5.0, as_[1], dqs_[1], lnodes[lnodes .< μmax]; position=:lt)
-
-# ╔═╡ 8e6e8a69-1677-4e6f-a0bc-0d5304b83263
-begin
-	@stable @views function Gmap_legendre(G, μ, a, dq)
-		lastfval = Gintegrand(G, tnodes[end], μ, a, dq)
-		I = if (sqrt(2π * dq) * lastfval) > eps(typeof(lastfval))
-			# We're leaking integrand. At this point we know the integral is 1.
-			oneunit(eltype(tweights)) * oneunit(lastfval)
-		else
-			fvals = Gintegrand.(G, tnodes[begin:(end - 1)], μ, a, dq)
-			push!(fvals, lastfval)
-			dot(tweights, fvals)
-		end
-		return log(I) / a
-	end
-	
-	@stable G1_legendre(μ) = Gmap_legendre(G0, μ, as_[1], dqs_[1])
-end;
-
-# ╔═╡ 31310c3f-6269-49df-8aef-9a60ace637dc
-Gplot(Gdomain, G0, G1_legendre)
-
-# ╔═╡ 4a659c8b-4b36-4a39-a7c8-bc49a0770e51
-diffplot(
-	G1_quadgk, G1_legendre, tnodes;
-	flabel=L"\mathcal{G}_1", approxlabel="Legendre", xlabel=L"\mu",
-	relativeto=first, relativetolabel="0",
-)
-
-# ╔═╡ b5819306-7e49-4139-a22b-e426980d0ec4
-quadplot(G0, 5.0, as_[1], dqs_[1], tnodes; position=:lt)
-
-# ╔═╡ e49c231b-2bfd-4986-8c80-2715e4ebb4d3
-begin
-	@stable @views function Gmap_legendre_stretched(G, μ, a, dq)
-		lastfval = Gintegrand(G, snodes[end], μ, a, dq)
-		I = if sqrt(2π * dq) * lastfval > eps(typeof(lastfval))
-			# We're leaking integrand. At this point we know the integral is 1.
-			oneunit(eltype(sweights)) * oneunit(lastfval)
-		else
-			fvals = Gintegrand.(G, snodes[begin:(end - 1)], μ, a, dq)
-			push!(fvals, lastfval)
-			dot(sweights, fvals)
-		end
-		return log(I) / a
-	end
-	
-	@stable G1_legendre_stretched(μ) = Gmap_legendre_stretched(G0, μ, as_[1], dqs_[1])
-end;
-
-# ╔═╡ cdb6f1e9-c420-42dc-b06f-5e235ee07e8f
-Gplot(Gdomain, G0, G1_legendre_stretched)
-
-# ╔═╡ d8aa9d5b-4363-4c55-80f1-b7d8eb15d347
-diffplot(
-	G1_quadgk, G1_legendre_stretched, snodes[snodes .< μmax];
-	flabel=L"\mathcal{G}_1", approxlabel="stretched", xlabel=L"\mu",
-	relativeto=first, relativetolabel="0", legendposition=:rt,
-)
-
-# ╔═╡ d2b13b6e-2b5c-465c-a647-344f3495867b
-quadplot(G0, 5.0, as_[1], dqs_[1], snodes[snodes .< μmax]; position=:lt)
-
-# ╔═╡ 01780f9b-95a9-4601-82ca-10af89a10375
-begin
-	@stable function Ghintegrand(G, μp, μ, a, dq)
-		dμ = μ - μp
-		return exp(a * (G(dμ) + abs(dμ) - abs(μ) - a * dq / 2))
-	end
-	
-	@stable function Ghfullintegrand(G, μp, μ, a, dq)  # Just for plots
-		return Ghintegrand(G, μp, μ, a, dq) * exp(-μp^2 / (2dq)) / sqrt(2π * dq)
-	end
-	
-	@stable function Gmap_hermite(G, μ, a, dq)
-		fvals = Ghintegrand.(G, sqrt(dq) .* hnodes, μ, a, dq)
-		return log(dot(hweights, fvals)) / a
-	end
-	
-	@stable G1_hermite(μ) = Gmap_hermite(G0, μ, as_[1], dqs_[1])
-end;
-
-# ╔═╡ 8177c265-91fb-4cd7-8652-f4cfb3c8aa2f
-Gplot(Gdomain, G0, G1_hermite)
-
-# ╔═╡ b12cd52d-1f43-4def-9a92-b425526e4a28
-diffplot(
-	G1_quadgk, G1_hermite, sqrt(dqs_[1]) * hnodes;
-	flabel=L"\mathcal{G}_1", approxlabel="Hermite", xlabel=L"\mu",
-	relativeto=(_ -> G1_quadgk(0.0)), relativetolabel="0",
-)
-
-# ╔═╡ 12f69cae-7017-4fde-89ea-54f701b4bd68
-quadplot(G0, 0.03, as_[1], dqs_[1], sqrt(dqs_[1]) * hnodes; integrand=Ghfullintegrand)
-
-# ╔═╡ 36c3f5a2-7fcc-4b5a-9109-25e5a994d1c3
-Gvs = let
-	Gvs = [G0.(nodes)]
-	for i in 1:k
-		push!(Gvs, Gmap(last(Gvs), as_[i], dqs_[i]))
-	end
-	Gvs
-end;
-
-# ╔═╡ 06ff0708-675d-4008-9812-e35d785fe054
-let
-	fig = Figure()
-	ax = Axis(fig[1, 1])
-	for Gv in Gvs
-		lines!(ax, nodes, Gv)
-	end
-	fig
-end
-
-# ╔═╡ 223aa38b-ee9e-4da8-9d19-9c440ee15ca5
-let i=k, a=as_[i]
-	diffplot(
-		# Gs_quadgk[i + 1].(nodes), Gvs[i + 1], nodes;
-		exp.(a .* Gs_quadgk[i + 1].(nodes)), exp.(a .* Gvs[i + 1]), nodes;
-		flabel=L"\mathcal{G}_{%$i}", xlabel=L"\mu", approxlabel="Legendre",
-		relativeto=first, relativetolabel=L"\mu",
-	)
-end
 
 # ╔═╡ c2e34d7e-8989-48e3-945c-8f42fed07ead
 begin
