@@ -51,9 +51,15 @@ end
 ## Solver
 function optimize(
     problem::AbstractRSBProblem{T}, u0::AbstractVector{T}=initstate(problem);
-    quadn, quadcutoff=T(Inf), quadscale=8one(T), quadtol=16eps(T), kwargs...,
+    quadn, quadcutoff=T(Inf), quadscale=8one(T), quadtol=16eps(T), quadstretchmode=nothing,
+    kwargs...,
 ) where {T}
-    quad = GaussKronrod(quadn, T(quadcutoff); scale=T(quadscale), tol=T(quadtol))
+    quadkws = if isnothing(quadstretchmode)
+        (; scale=T(quadscale), tol=T(quadtol))
+    else
+        (; scale=T(quadscale), tol=T(quadtol), stretchmode=quadstretchmode)
+    end
+    quad = GaussKronrod(quadn, T(quadcutoff); quadkws...)
     return _optimize(u0, problem, quad; kwargs...)
 end
 

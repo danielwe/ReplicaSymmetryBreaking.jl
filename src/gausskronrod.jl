@@ -7,7 +7,7 @@ struct GaussKronrod{T<:AbstractFloat,inf}
     abstolscale::Base.RefValue{T}
 
     function GaussKronrod(
-        n, cutoff::T; scale=one(T), tol=16eps(T), abstolscale=zero(T)
+        n, cutoff::T; scale=one(T), tol=16eps(T), abstolscale=zero(T), stretchmode=:exp
     ) where {T}
         nodes_, weights_, gaussweights_ = kronrod(T, n)
         Base.require_one_based_indexing(nodes_, weights_, gaussweights_)
@@ -18,8 +18,8 @@ struct GaussKronrod{T<:AbstractFloat,inf}
         if inf
             (scale > 0) || throw(ArgumentError("scale must be positive"))
             b = copysign(T(scale), cutoff)
-            jac = stretchjac.(nodes, b)
-            nodes .= stretchmap.(nodes, b)
+            jac = stretchjac.(nodes, b, stretchmode)
+            nodes .= stretchmap.(nodes, b, stretchmode)
             weights .*= jac
             gaussweights .*= jac[2:2:end]
         else
@@ -51,12 +51,19 @@ EnzymeRules.inactive(::typeof(set_abstolscale!), args...) = true
 
 ## Stretch t ∈ (-1, 1) to ν ∈ (0, Inf)
 # Cancellation for ν near 0, but map must be smooth, so can't avoid -1 -> 0 or 1 -> 0
-# a) ν = -b * log((1 - t) / 2); dν = b * dt / (t - 1)
-stretchmap(t, b) = -b * log((1 - t) / 2)
-stretchjac(t, b) = abs(b) / (1 - t)
-# # b) ν = b * (1 + t) / (1 - t); dν = 2b / (1 - t)^2
-# stretchmap(t, b) = b * (1 + t) / (1 - t)
-# stretchjac(t, b) = 2b / ((1 - t)^2)
+# :exp:   ν = -b * log((1 - t) / 2); dν = b * dt / (t - 1)
+# :power: ν = b * (1 + t) / (1 - t); dν = 2b / (1 - t)^2
+function stretchmap(t, b, mode)
+    (mode == :exp) && return -b * log((1 - t) / 2)
+    (mode == :power) && return b * (1 + t) / (1 - t)
+    throw(ArgumentError("invalid mode: must be :exp or :power"))
+end
+
+function stretchjac(t, b, mode)
+    (mode == :exp) && return abs(b) / (1 - t)
+    (mode == :power) && return 2abs(b) / ((1 - t)^2)
+    throw(ArgumentError("invalid mode: must be :exp or :power"))
+end
 
 ## Integrate f(ν, args...) over (0, cutoff(quad))
 function integrate(
