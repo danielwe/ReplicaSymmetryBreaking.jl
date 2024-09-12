@@ -123,7 +123,7 @@ function make_hvpobjective(uprototype::AbstractVector{T}, ws::Workspace{T}) wher
     bws = make_zero(ws)
     dws = make_zero(ws)
     bdws = make_zero(dws)
-    return function hvpobjective!(Hv, u, v, problem, quad, ws)
+    return function hvpobjective!(Hv, v, u, problem, quad, ws)
         _make_zero!(bws)
         _make_zero!(dws)
         _make_zero!(bdws)

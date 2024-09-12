@@ -47,7 +47,7 @@ let
     #     vs = ReplicaSymmetryBreaking.Enzyme.onehot(u0)
     #     Hvs = similar.(vs)
     #     for i in eachindex(Hvs, vs)
-    #         hvp!(Hvs[i], u0, vs[i], problem, quad, ws)
+    #         hvp!(Hvs[i], vs[i], u0, problem, quad, ws)
     #     end
     #     return reduce(hcat, Hvs)
     # end
