@@ -1,0 +1,105 @@
+## Quadrature on (0, b)
+struct GaussKronrod{T<:AbstractFloat,inf}
+    nodes::Vector{T}
+    weights::Vector{T}
+    gaussweights::Vector{T}
+    tol::T
+    abstolscale::Base.RefValue{T}
+
+    function GaussKronrod(
+        n, cutoff::T; scale=one(T), tol=16eps(T), abstolscale=zero(T)
+    ) where {T}
+        nodes_, weights_, gaussweights_ = kronrod(T, n)
+        Base.require_one_based_indexing(nodes_, weights_, gaussweights_)
+        nodes = [nodes_; -nodes_[(end - 1):-1:1]]  # (-1, 0] ∪ (0, 1) = (-1, 1)
+        weights = [weights_; weights_[(end - 1):-1:1]]
+        gaussweights = [gaussweights_; gaussweights_[fld(n, 2):-1:1]]
+        inf = isinf(cutoff)
+        if inf
+            (scale > 0) || throw(ArgumentError("scale must be positive"))
+            b = copysign(T(scale), cutoff)
+            jac = stretchjac.(nodes, b)
+            nodes .= stretchmap.(nodes, b)
+            weights .*= jac
+            gaussweights .*= jac[2:2:end]
+        else
+            b = cutoff / 2
+            nodes .= (nodes .+ 1) .* b  # (0, cutoff)
+            weights .*= b
+            gaussweights .*= b
+        end
+        return new{T,inf}(nodes, weights, gaussweights, tol, Ref(abstolscale))
+    end
+end
+
+EnzymeRules.inactive_type(::Type{<:GaussKronrod}) = true
+
+getnode(quad::GaussKronrod, i) = quad.nodes[i]
+
+function cutoff(quad::GaussKronrod{T,inf}) where {T,inf}
+    n = length(quad.gaussweights)
+    midpoint = quad.nodes[n + 1]
+    return inf ? copysign(oftype(midpoint, Inf), midpoint) : (2midpoint)
+end
+
+function set_abstolscale!(quad::GaussKronrod{T}, abstolscale::T) where {T}
+    quad.abstolscale[] = abstolscale
+    return nothing
+end
+
+EnzymeRules.inactive(::typeof(set_abstolscale!), args...) = true
+
+## Stretch t ∈ (-1, 1) to ν ∈ (0, Inf)
+# Cancellation for ν near 0, but map must be smooth, so can't avoid -1 -> 0 or 1 -> 0
+# a) ν = -b * log((1 - t) / 2); dν = b * dt / (t - 1)
+stretchmap(t, b) = -b * log((1 - t) / 2)
+stretchjac(t, b) = abs(b) / (1 - t)
+# # b) ν = b * (1 + t) / (1 - t); dν = 2b / (1 - t)^2
+# stretchmap(t, b) = b * (1 + t) / (1 - t)
+# stretchjac(t, b) = 2b / ((1 - t)^2)
+
+## Integrate f(ν, args...) over (0, cutoff(quad))
+function integrate(
+    f::F, quad::GaussKronrod{T}, args...;
+    integrandbuffer::AbstractVector{T}=similar(quad.weights)
+) where {F,T}
+    map!(f, integrandbuffer, quad.nodes, args...)
+    I = dot(integrandbuffer, quad.weights)
+    checkintegral(I, integrandbuffer, quad)
+    return I
+end
+
+function checkintegral(I, integrandbuffer, quad)
+    Base.require_one_based_indexing(integrandbuffer)
+    @views Igauss = dot(integrandbuffer[2:2:end], quad.gaussweights)
+    err, Iabs = abs(I - Igauss), abs(I)
+    tol, scale = quad.tol, oftype(Iabs, quad.abstolscale[])
+    (err < (tol * max(Iabs, scale))) && return true
+    error(
+        "Gauss-Kronrod error too large: relative error = $(err / Iabs), "
+        * " scaled absolute error = $(err / scale), tolerance = $(tol)"
+    )
+end
+
+EnzymeRules.inactive(::typeof(checkintegral), args...) = true
+
+# ## Use Gauss-Chebyshev instead of Gauss-Legendre quadrature
+# # much poorer convergence, but facilitates direct Chebyshev interpolation of values
+# # change 2:2:end to 1:2:end in checkintegral if using this
+# function chebyshevkronrod(T, n)
+#     N = (3n + 3) ÷ 2
+#     half = oneunit(T) / 2
+#     jacobisuperdiag = fill(half, N - 1)
+#     jacobisuperdiag[begin] = sqrt(half)
+#     jacobimatrix = QuadGK.HollowSymTridiagonal(jacobisuperdiag)
+#     x, w, gw = kronrod(jacobimatrix, n, π)
+#     # Absorb weight function into weights. The kronrod rule includes the cutoffs, and this
+#     # sets the corresponding weights to zero. This means we're assuming that the integrand
+#     # does not have an integrable singularity at one or both cutoffs, where f(±1) diverges
+#     # but f(x) * sqrt(1 - x^2) has a finite limit. For the purposes of this package, that's
+#     # a valid assumption, but this should be kept in mind for more general applications.
+#     w .*= sqrt.(1 .- x.^2)
+#     @views gw .*= sqrt.(1 .- (x[2:2:end].^2))
+#     @assert iszero(w[begin]) "w[begin] = $(w[begin])"  # Assert first weight zero
+#     return x[2:end], w[2:end], gw
+# end

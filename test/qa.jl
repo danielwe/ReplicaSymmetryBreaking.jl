@@ -17,7 +17,23 @@ end
     @test check_all_explicit_imports_via_owners(RSB) === nothing
     @test check_all_qualified_accesses_via_owners(RSB) === nothing
     @test check_all_explicit_imports_are_public(RSB) === nothing
-    let ignore=(:LD_LBFGS, :successful_retcode)
+    let ignore=(
+        :promote_op,
+        :require_one_based_indexing,
+        :RefValue,
+        :threadpoolsize,
+        :inactive,
+        :inactive_type,
+        :API,
+        :fast_math!,
+        :runtimeActivity!,
+        :typeWarning!,
+        :maxtypedepth!,
+        # :maxtypeoffset!,
+        # :looseTypeAnalysis!,
+        # :inlineall!,
+        # :strictAliasing!,
+    )
         @test check_all_qualified_accesses_are_public(RSB; ignore) === nothing
     end
 end
