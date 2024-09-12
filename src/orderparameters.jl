@@ -47,10 +47,12 @@ function checkorderparams(op::Orderparameters{T}, (; k, β)::AbstractRSBProblem{
     (; a, sqrtdq) = op
     if (
         (length(a) == k)
+        && all(i -> (a[i] > a[i + 1]), eachindex(a)[begin:(end - 1)])
+        && (a[end] > 0)
         # && (length(sqrtdq) == (k + 2))  # Enforced by constructor
-        && all(ai -> (ai > 0), a)
         && ((isinf(β) && (sqrtdq[begin] == 0)) || (!isinf(β) && (sqrtdq[begin] > 0)))
-        && all(sqrtdqi -> (sqrtdqi > 0), @view sqrtdq[2:end])
+        && all(sqrtdqi -> (sqrtdqi > 0), @view sqrtdq[(begin + 1):end])
+        && isapprox(sum(sqrtdqi -> sqrtdqi^2, sqrtdq), 1)
     )
         return true
     end
