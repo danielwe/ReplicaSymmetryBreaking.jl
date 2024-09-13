@@ -27,8 +27,8 @@ using LogExpFunctions: log1pexp
 using QuadGK: QuadGK, kronrod
 using SpecialFunctions: erfc
 
-using Nonconvex: Nonconvex, CustomGradFunction, Model, addvar!
-using NonconvexIpopt: IpoptAlg, IpoptOptions
+using Ipopt: AddIpoptIntOption, AddIpoptNumOption, AddIpoptStrOption, CreateIpoptProblem,
+    IpoptSolve, SetIntermediateCallback
 
 export GaussKronrod, Orderparameters, freeenergy, initstate, Workspace, objective, optimize,
     SKProblem

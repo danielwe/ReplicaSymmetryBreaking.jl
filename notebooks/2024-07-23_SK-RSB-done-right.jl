@@ -185,12 +185,20 @@ begin
 	
 	function (c::ProgressCallback)(state, value)
 		if isnan(value)
+			# This branch is never encountered when using this callback with Ipopt,
+			# as Ipopt handles nans/infs in the line search code and never lets them
+			# through to the iteration postamble where the callback is called
 			push!(c.unans, copy(state.u))
-			#op = Orderparameters(c.problem, state.u)
-			#@debug "Got $value" op=op  #maxlog=5
+			op = Orderparameters(c.problem, state.u)
+			@debug "Got $value" op=op
+			nnans = length(c.unans)
+			if nnans >= 64
+				@error "$nnans iterations returned $value, terminating"
+				return true
+			end
 		else
 			c.i[] = i = c.i[] + 1
-			logprogress(i / (i + 100))
+			logprogress(i / (i + 128))
 		end
 		return false
 	end
@@ -211,11 +219,11 @@ begin
 	# Find the lowest-order quadrature that reproducibly achieves the required
 	# tolerance throughout the optimization
 	us, unans, times = Dict(), Dict(), Dict()
-	let callback=ProgressCallback(problem), optreltol=2.0^(-49), ipoptions=(;
-		print_level=3,
+	let callback=ProgressCallback(problem), ipoptions=(
+		tol=2.0^(-49), print_level=3, max_wall_time=120.0,
 	)
-		options = (; quadcutoff, quadtol, quadstretchmode, optreltol)
-		@info options
+		quadoptions = (; quadcutoff, quadtol, quadstretchmode)
+		@info quadoptions
 		for quadn in 60, quadscale in 4.0
 			reset!(callback)
 			quadconfig = (; quadn, quadscale)
@@ -225,7 +233,9 @@ begin
 					reset!(callback)
 					u = optimize(
 						problem;
-						quadn, quadscale, callback, ntasks, options..., ipoptions...,
+						warn_on_handled_exceptions=false,
+						quadn, quadscale, quadoptions...,
+						ntasks, callback, ipoptions...,
 					)
 					done!(callback)
 					@assert keys(us) == keys(unans)

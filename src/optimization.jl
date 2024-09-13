@@ -26,27 +26,27 @@ function objective(
     (; op, buffers)::Workspace{T},
 ) where {T}
     updateorderparameters!(op, problem, u)
-    return freeenergy(problem, quad, op, buffers)
+    return -freeenergy(problem, quad, op, buffers)
 end
 
-function nanobjective(args...)
+function nanobjective(args...; kwargs...)
     try
         return objective(args...)
     catch e
-        handleexceptions(e, AbstractRSBException) || rethrow()
+        handleexceptions(e, AbstractRSBException; kwargs...) || rethrow()
         return convert(Base.promote_op(objective, typeof.(args)...), NaN)
     end
 end
 
 ## Objective gradient
-function make_dobjective(ws::Workspace, objective::O=objective) where {O}
+function make_dobjective(ws::Workspace, _objective::O=objective) where {O}
     dws = make_zero(ws)
     return function dobjective!(du, u, problem, quad, ws)
         _make_zero!(du)
         _make_zero!(dws)
         autodiff(
             Reverse,
-            objective,
+            _objective,
             Active,
             Duplicated(u, du),
             Const(problem),
@@ -57,7 +57,10 @@ function make_dobjective(ws::Workspace, objective::O=objective) where {O}
     end
 end
 
-make_nandobjective(ws) = make_dobjective(ws, nanobjective)
+function make_nandobjective(ws; kwargs...)
+    _nanobjective(args...) = nanobjective(args...; kwargs...)
+    return make_dobjective(ws, _nanobjective)
+end
 
 ## Solver
 function optimize(
@@ -76,48 +79,62 @@ end
 
 function _optimize(
     u0::AbstractVector{T}, problem::AbstractRSBProblem{T}, quad::GaussKronrod{T};
-    ntasks=Threads.threadpoolsize(), callback=nothing, max_iter=256,
-    optreltol=8eps(T), limited_memory_max_history=256, algoptions...,
+    warn_on_handled_exceptions=false, ntasks=Threads.threadpoolsize(), callback=nothing,
+    max_wall_time=60.0, tol=8eps(T), acceptable_tol=tol, limited_memory_max_history=256,
+    ipoptoptions...,
 ) where {T}
+    # Allocate workspace and create function and gradient closures
     ws = Workspace(u0, problem, quad; ntasks)
-    F = let problem=problem, quad=quad, ws=ws
-        f = if isnothing(callback)
-            f_nocallback(u) = -nanobjective(u, problem, quad, ws)
-        else
-            let callback=callback
-                function f_callback!(u)
-                    obj = -nanobjective(u, problem, quad, ws)
-                    if callback((; u), obj)
-                        # Can't find a way to stop Nonconvex.jl
-                    end
-                    return obj
-                end
-            end
-        end
-        g = let du=similar(u0), dobjective! = make_nandobjective(ws)
-            function g(u)
-                dobjective!(du, u, problem, quad, ws)
-                @. du = -du
-                return du
-            end
-        end
-        CustomGradFunction(f, g)
-    end
-    model = Model(F)
-    addvar!(model, zero(u0), oneunit.(u0) ./ 2)
-    alg = IpoptAlg()
-    options = IpoptOptions(;
-        max_iter, first_order=true, linear_constraints=true, bound_relax_factor=0.0,
-        tol=T(optreltol), acceptable_tol=T(optreltol), limited_memory_max_history,
-        algoptions...,
+    eval_f(u) = nanobjective(u, problem, quad, ws; warn=warn_on_handled_exceptions)
+
+    nandobjective! = make_nandobjective(ws; warn=warn_on_handled_exceptions)
+    eval_grad_f(u, du) = nandobjective!(du, u, problem, quad, ws)
+
+    # Create and initialize Ipopt problem
+    prob = CreateIpoptProblem(
+        length(u0),         # problem dimension
+        zero(u0),           # lower bounds
+        oneunit.(u0) ./ 2,  # upper bounds
+        0,                  # constraint function dimension
+        T[],                # constraint function lower bounds
+        T[],                # constraint function upper bounds
+        0,                  # number of nonzero elements in constraint function jacobian
+        0,                  # number of nonzero elements in hessian of lagrangian
+        eval_f,             # objective function
+        (_...) -> nothing,  # constraint function
+        eval_grad_f,        # gradient of objective function
+        (_...) -> nothing,  # jacobian of constraint function
+        nothing,            # hessian of lagrangian
     )
-    result = Nonconvex.optimize(model, alg, u0; options)
-    if result.status == 1
-        @warn "Optimization converged to acceptable but not desired tolerance"
-    elseif result.status != 0
-        error("Optimization did not converge, returned code $(result.status)")
+    prob.x .= u0
+
+    # Set options related to the problem structure
+    addipoptoption(prob, "bound_relax_factor", zero(T))
+    addipoptoption(prob, "jac_c_constant", "yes")
+    addipoptoption(prob, "jac_d_constant", "yes")
+    addipoptoption(prob, "hessian_approximation", "limited-memory")
+
+    # Set options that are always present but user configurable
+    addipoptoption(prob, "max_wall_time", max_wall_time)
+    addipoptoption(prob, "tol", T(tol))
+    addipoptoption(prob, "acceptable_tol", T(acceptable_tol))
+    addipoptoption(prob, "limited_memory_max_history", limited_memory_max_history)
+
+    # Set extra options provided by the user
+    foreach(option -> addipoptoption(prob, option...), ipoptoptions)
+
+    if !isnothing(callback)
+        setipoptcallback(prob, callback)
     end
-    return result.minimizer
+
+    # Solve problem, inspect result, and return minimzer
+    IpoptSolve(prob)
+    if prob.status == 1
+        @warn "Optimization converged to acceptable but not desired tolerance"
+    elseif prob.status != 0
+        error("Optimization did not converge, returned code $(prob.status)")
+    end
+    return prob.x
 end
 
 ## Objective Hessian-vector product
