@@ -62,7 +62,7 @@ make_nandobjective(ws) = make_dobjective(ws, nanobjective)
 ## Solver
 function optimize(
     problem::AbstractRSBProblem{T}, u0::AbstractVector{T}=initstate(problem);
-    quadn, quadcutoff=T(Inf), quadscale=8one(T), quadtol=16eps(T), quadstretchmode=nothing,
+    quadn, quadcutoff=T(Inf), quadscale=4one(T), quadtol=16eps(T), quadstretchmode=nothing,
     kwargs...,
 ) where {T}
     quadkws = if isnothing(quadstretchmode)
@@ -76,7 +76,8 @@ end
 
 function _optimize(
     u0::AbstractVector{T}, problem::AbstractRSBProblem{T}, quad::GaussKronrod{T};
-    optreltol=256eps(T), ntasks=Threads.threadpoolsize(), callback=nothing, algoptions...,
+    ntasks=Threads.threadpoolsize(), callback=nothing, max_iter=256,
+    optreltol=8eps(T), limited_memory_max_history=256, algoptions...,
 ) where {T}
     ws = Workspace(u0, problem, quad; ntasks)
     F = let problem=problem, quad=quad, ws=ws
@@ -106,8 +107,9 @@ function _optimize(
     addvar!(model, zero(u0), oneunit.(u0) ./ 2)
     alg = IpoptAlg()
     options = IpoptOptions(;
-        first_order=true, tol=T(optreltol), acceptable_tol=T(optreltol),
-        linear_constraints=true, algoptions...,
+        max_iter, first_order=true, linear_constraints=true, bound_relax_factor=0.0,
+        tol=T(optreltol), acceptable_tol=T(optreltol), limited_memory_max_history,
+        algoptions...,
     )
     result = Nonconvex.optimize(model, alg, u0; options)
     if result.status == 1
