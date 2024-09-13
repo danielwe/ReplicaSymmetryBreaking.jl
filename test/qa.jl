@@ -18,6 +18,7 @@ end
     @test check_all_qualified_accesses_via_owners(RSB) === nothing
     @test check_all_explicit_imports_are_public(RSB) === nothing
     let ignore=(
+        :map,
         :promote_op,
         :require_one_based_indexing,
         :RefValue,

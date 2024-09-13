@@ -18,19 +18,28 @@ function _make_zero!(ws::Workspace)
     return nothing
 end
 
-## Objective and gradient
+## Objective
 function objective(
     u::AbstractVector{T},
     problem::AbstractRSBProblem{T},
     quad::GaussKronrod{T},
     (; op, buffers)::Workspace{T},
 ) where {T}
-    RT = Base.promote_op(freeenergy, typeof.((problem, quad, op, buffers))...)
-    updateorderparameters!(op, problem, u) || return convert(RT, NaN)
+    updateorderparameters!(op, problem, u)
     return freeenergy(problem, quad, op, buffers)
 end
 
-function make_dobjective(ws::Workspace)
+function nanobjective(args...)
+    try
+        return objective(args...)
+    catch e
+        handleexceptions(e, AbstractRSBException) || rethrow()
+        return convert(Base.promote_op(objective, typeof.(args)...), NaN)
+    end
+end
+
+## Objective gradient
+function make_dobjective(ws::Workspace, objective::O=objective) where {O}
     dws = make_zero(ws)
     return function dobjective!(du, u, problem, quad, ws)
         _make_zero!(du)
@@ -47,6 +56,8 @@ function make_dobjective(ws::Workspace)
         return nothing
     end
 end
+
+make_nandobjective(ws) = make_dobjective(ws, nanobjective)
 
 ## Solver
 function optimize(
@@ -70,11 +81,11 @@ function _optimize(
     ws = Workspace(u0, problem, quad; ntasks)
     F = let problem=problem, quad=quad, ws=ws
         f = if isnothing(callback)
-            f_nocallback(u) = -objective(u, problem, quad, ws)
+            f_nocallback(u) = -nanobjective(u, problem, quad, ws)
         else
             let callback=callback
                 function f_callback!(u)
-                    obj = -objective(u, problem, quad, ws)
+                    obj = -nanobjective(u, problem, quad, ws)
                     if callback((; u), obj)
                         # Can't find a way to stop Nonconvex.jl
                     end
@@ -82,7 +93,7 @@ function _optimize(
                 end
             end
         end
-        g = let du=similar(u0), dobjective! = make_dobjective(ws)
+        g = let du=similar(u0), dobjective! = make_nandobjective(ws)
             function g(u)
                 dobjective!(du, u, problem, quad, ws)
                 @. du = -du

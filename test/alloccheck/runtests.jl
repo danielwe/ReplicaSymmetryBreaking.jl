@@ -12,7 +12,4 @@ end
 
 testnoallocs(f, args) = @test noallocs(f, args)
 
-# turn off logging---that's not the allocations we're worried about
-ReplicaSymmetryBreaking.loggingenabled() = false
-
 @testset "AllocCheck.jl child process" commontestsets(Dict(objective => testnoallocs))

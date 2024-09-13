@@ -72,23 +72,34 @@ function integrate(
 ) where {F,T}
     map!(f, integrandbuffer, quad.nodes, args...)
     I = dot(integrandbuffer, quad.weights)
-    checkintegral(I, integrandbuffer, quad)
+    checkgausskronrodprecision(I, integrandbuffer, quad)
     return I
 end
 
-function checkintegral(I, integrandbuffer, quad)
+function checkgausskronrodprecision(I, integrandbuffer, quad)
     Base.require_one_based_indexing(integrandbuffer)
     @views Igauss = dot(integrandbuffer[2:2:end], quad.gaussweights)
     err, Iabs = abs(I - Igauss), abs(I)
     tol, scale = quad.tol, oftype(Iabs, quad.abstolscale[])
-    (err < (tol * max(Iabs, scale))) && return true
-    error(
-        "Gauss-Kronrod error too large: relative error = $(err / Iabs), "
-        * " scaled absolute error = $(err / scale), tolerance = $(tol)"
-    )
+    if err >= (tol * max(Iabs, scale))
+        throw(GaussKronrodPrecisionError(err / Iabs, err / scale, tol))
+    end
+    return nothing
 end
 
-EnzymeRules.inactive(::typeof(checkintegral), args...) = true
+EnzymeRules.inactive(::typeof(checkgausskronrodprecision), args...) = true
+
+struct GaussKronrodPrecisionError{T} <: AbstractRSBException
+    relerr::T
+    scalederr::T
+    tol::T
+end
+
+function Base.showerror(io::IO, (; relerr, scalederr, tol)::GaussKronrodPrecisionError)
+    print(io, "Gauss-Kronrod error outside tolerance: ")
+    print(io, "relative error = $relerr, scaled error = $scalederr, tolerance = $tol")
+    return nothing
+end
 
 # ## Use Gauss-Chebyshev instead of Gauss-Legendre quadrature
 # # much poorer convergence, but facilitates direct Chebyshev interpolation of values

@@ -14,18 +14,20 @@ function state((; β)::AbstractRSBProblem{T}, (; a, sqrtdq)::Orderparameters{T})
     end
 end
 
-function Orderparameters(problem::AbstractRSBProblem{T}, u::AbstractVector{T}) where {T}
+function Orderparameters(
+    problem::AbstractRSBProblem{T}, u::AbstractVector{T}; kwargs...
+) where {T}
     (; k) = problem
     if k != (length(u) ÷ 2)
         error("mismatched state dimension for problem: k = $k, length(u) = $(length(u))")
     end
     op = Orderparameters(zeros(T, k), zeros(T, k + 2))
-    updateorderparameters!(op, problem, u)
+    updateorderparameters!(op, problem, u; kwargs...)
     return op
 end
 
 function updateorderparameters!(
-    op::Orderparameters{T}, problem::AbstractRSBProblem{T}, u::AbstractVector{T}
+    op::Orderparameters{T}, problem::AbstractRSBProblem{T}, u::AbstractVector{T}; check=true
 ) where {T}
     (; a, sqrtdq) = op
     (; k, β) = problem
@@ -42,7 +44,8 @@ function updateorderparameters!(
         polar2reversecumsum!(a, u[1:k], β)
         polar2cartesian!(sqrtdq, u[(k + 1):end])
     end
-    return checkorderparams(op, problem)
+    check && checkorderparameters(op, problem)
+    return nothing
 end
 
 # Map between unit N-sphere and misc reprs of a simplex (N + 1 numbers with fixed sum)

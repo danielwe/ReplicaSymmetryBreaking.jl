@@ -33,11 +33,12 @@ using NonconvexIpopt: IpoptAlg, IpoptOptions
 export GaussKronrod, Orderparameters, freeenergy, initstate, Workspace, objective, optimize,
     SKProblem
 
+include("abstract.jl")
+
 include("utils.jl")
 include("gaussians.jl")
 include("gausskronrod.jl")
 
-include("abstract.jl")
 include("orderparameters.jl")
 include("freeenergy.jl")
 

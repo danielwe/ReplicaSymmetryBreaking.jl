@@ -32,18 +32,26 @@ end
 
 ## Validate that Gaussian kernel does not leak beyond cutoff
 function checkgaussianleak(mean, std, cutoff)
-    (isfinite(mean) && isinf(cutoff)) && return true
+    (isfinite(mean) && isinf(cutoff)) && return nothing
     abscutoff = abs(cutoff)
     denom = sqrt(2one(std)) * std
     zright, zleft = (abscutoff - mean) / denom, (abscutoff + mean) / denom
-    leak = (erfc(zright) + erfc(zleft)) / 2
-    (leak < (eps(typeof(leak)) / 2)) && return true
-    @maybewarn(
-        "Gaussian kernel leaking beyond $cutoff; mean = $mean, std = $(std), "
-        * "leaked mass = $leak",
-        maxlog=5,
-    )
-    return false
+    mass = (erfc(zright) + erfc(zleft)) / 2
+    (mass < (eps(typeof(mass)) / 2)) || throw(GaussianLeakError(cutoff, mean, std, mass))
+    return nothing
 end
 
 EnzymeRules.inactive(::typeof(checkgaussianleak), args...) = true
+
+struct GaussianLeakError{T} <: AbstractRSBException
+    cutoff::T
+    mean::T
+    std::T
+    mass::T
+end
+
+function Base.showerror(io::IO, (; cutoff, mean, std, mass)::GaussianLeakError)
+    print(io, "Gaussian kernel leaking beyond $cutoff; mean = $mean, std = $std, ")
+    print(io, "leaked mass = $mass")
+    return nothing
+end

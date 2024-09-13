@@ -27,7 +27,7 @@ end
         result = f(args...)
         @test result == @inferred f(args...)
         @test_call f(args...)
-        @test_opt ignored_modules=(AnyFrameModule(Base.CoreLogging),) f(args...)
+        @test_opt f(args...)
         @test 0 == @allocations f(args...)
         return nothing
     end

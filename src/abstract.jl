@@ -5,3 +5,8 @@ abstract type AbstractRSBProblem{T<:AbstractFloat} end
 function fieldterm end  # fieldterm(::AbstractRSBProblem{T}, ::Orderparameters{T}) where {T}
 function G0 end         # G0(::AbstractRSBProblem{T}, μ::T >= 0) >= 0: initial trace kernel
 function heff end       # heff(::AbstractRSBProblem) >= 0: trace effective field
+
+## RSB exception supertype
+abstract type AbstractRSBException <: Exception end
+
+EnzymeRules.inactive_type(::Type{<:AbstractRSBException}) = true
