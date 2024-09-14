@@ -4,19 +4,11 @@ BLAS.set_num_threads(1)
 
 using ReplicaSymmetryBreaking
 
-k = 12
-β = Inf
-problem = SKProblem(; k, β)
-
-quadendpoint = Inf
-quadtol = 4.0^(-22)
-quadn = 256
-quadscale = 8.75
-quad = GaussKronrod(quadn, quadendpoint; scale=quadscale, tol=quadtol)
-
+problem = SKProblem(; k=10, β=Inf)
+quad = GaussKronrod(Inf, 88)
+ws = Workspace(problem, quad; ntasks=1)
+ws_threads = Workspace(problem, quad; ntasks=Threads.threadpoolsize())
 u0 = initstate(problem)
-ws = Workspace(u0, problem, quad; ntasks=1)
-ws_threads = Workspace(u0, problem, quad; ntasks=Threads.threadpoolsize())
 
 let
     obj = @btime objective($u0, $problem, $quad, $ws)

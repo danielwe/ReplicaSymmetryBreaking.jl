@@ -7,7 +7,7 @@ struct GaussKronrod{T<:AbstractFloat,inf}
     abstolscale::Base.RefValue{T}
 
     function GaussKronrod(
-        n, cutoff::T; scale=one(T), tol=16eps(T), abstolscale=zero(T), stretchmode=:exp
+        cutoff::T, n, scale=4one(T); tol=16eps(T), abstolscale=zero(T), stretchmode=:exp
     ) where {T}
         nodes_, weights_, gaussweights_ = kronrod(T, n)
         Base.require_one_based_indexing(nodes_, weights_, gaussweights_)

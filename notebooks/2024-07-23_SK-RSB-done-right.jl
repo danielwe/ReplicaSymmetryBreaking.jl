@@ -50,29 +50,17 @@ ntasks = Threads.threadpoolsize()
 
 # ╔═╡ 907b7363-234d-46ae-aacd-6379017238dd
 begin
-	k = 10
-	β = Inf
-	problem = SKProblem(; k, β)
-	u0 = initstate(problem)
-	op0 = Orderparameters(problem, u0)
-	(; u0, op0)
+	problem = SKProblem(; k=10, β=Inf)
+	op0 = Orderparameters(problem)
+	u0 = state(problem, op0)
+	(; op0, u0)
 end
 
 # ╔═╡ 78830d31-fdf0-4a46-9856-08ecfa22d9a0
-begin
-	quadcutoff = Inf
-	quadtol = 2.0^(-48)
-end;
+quadoptions = (; tol=2.0^(-48), stretchmode=:exp);
 
 # ╔═╡ f41354f8-a0a2-445a-95c9-352fa7290107
-begin
-	quadn = 88
-	quadscale = 4.0
-	quadstretchmode = :exp
-	quad = GaussKronrod(
-		quadn, quadcutoff; scale=quadscale, tol=quadtol, stretchmode=quadstretchmode
-	)
-end;
+quad = GaussKronrod(Inf, 88, 4.0; quadoptions...);
 
 # ╔═╡ cab48286-823e-475c-ac76-874f17b3a80b
 # Quadrature sanity checks
@@ -95,7 +83,7 @@ let nodes=quad.nodes
 end
 
 # ╔═╡ ba8b018b-ef61-4477-9406-a01e43d205fa
-ws = Workspace(u0, problem, quad; ntasks);
+ws = Workspace(problem, quad; ntasks);
 
 # ╔═╡ bf889797-59cf-4a0d-b2b0-8198c50a2d88
 @time objective(u0, problem, quad, ws)
@@ -118,7 +106,9 @@ end
   ╠═╡ =#
 
 # ╔═╡ bdba40e8-d461-44c7-b077-a58549331b3f
-function plot_orderparameters((; k, β), (; a, sqrtdq))
+function plot_orderparameters(problem, op)
+	(; β) = problem
+	(; a, sqrtdq) = op
 	afull = isinf(β) ? [a; 0; 0] : [β; a; 0; 0]
 	q = 1 .- cumsum(sqrtdq.^2)
 	qfull = isinf(β) ? q : [1; q]
@@ -132,22 +122,10 @@ end;
 plot_orderparameters(problem, op0)
 
 # ╔═╡ ea51f021-afc1-4c4c-b235-4c42d5979525
-@views function plot_tracefunctions(
-	problem, (; a, sqrtdq);
-	interval=(0.0, Inf),
-	quadn=quadn,
-	quadcutoff=quadcutoff,
-	quadscale=quadscale,
-	quadtol=quadtol,
-	quadstretchmode=quadstretchmode,
-	ntasks=ntasks,
-)
+@views function plot_tracefunctions(problem, quad, op; interval=(0.0, Inf))
 	fig = Figure()
 	ax = Axis(fig[1, 1]; xlabel=L"\mu", ylabel=L"\mathcal{G}(\mu)")
 	
-	quad = GaussKronrod(
-		quadn, quadcutoff; scale=quadscale, tol=quadtol, stretchmode=quadstretchmode
-	)
 	(; nodes) = quad
 	T = eltype(nodes)
 	buffers = ReplicaSymmetryBreaking.Tracebuffers(T, length(nodes); ntasks)
@@ -157,7 +135,8 @@ plot_orderparameters(problem, op0)
 	
 	I = (interval[1] .< nodes) .& (nodes .< interval[2])
 	lines!(ax, nodes[I], G[I])
-	
+
+	(; a, sqrtdq) = op
 	sqrtdqbulk = sqrtdq[(begin + 1):(end - 1)]
     for i in eachindex(a, sqrtdqbulk)
 		ai, sqrtdqi = a[i], sqrtdqbulk[i]
@@ -170,7 +149,7 @@ plot_orderparameters(problem, op0)
 end;
 
 # ╔═╡ 3a572f35-472e-481f-8c38-5d1453186e8c
-plot_tracefunctions(problem, op0; interval=(0.0, 3.0))
+plot_tracefunctions(problem, quad, op0; interval=(0.0, 3.0))
 
 # ╔═╡ 09cce4ed-0807-450f-b1c8-34c9015db9b7
 begin
@@ -224,20 +203,19 @@ begin
 		tol=2.0^(-49), max_wall_time=60.0, print_level=3,
 		output_file="ipopt.log", file_print_level=5,
 	)
-		quadoptions = (; quadcutoff, quadtol, quadstretchmode)
 		@info quadoptions
-		for quadn in 88, quadscale in 4.0
+		for cutoff in Inf, n in 88, scale in 4.0
 			reset!(callback)
-			quadconfig = (; quadn, quadscale)
+			quadconfig = (; cutoff, n, scale)
 			@info quadconfig
+			quad = GaussKronrod(quadconfig...; quadoptions...)
 			try
-				times[quadconfig] = @elapsed for _ in 1:3  # robustness threshold
+				times[quadconfig] = @elapsed for _ in 1:3  # 3x for robustness
 					reset!(callback)
 					u = optimize(
-						problem;
-						warn_on_handled_exceptions=false,
-						quadn, quadscale, quadoptions...,
-						ntasks, callback, ipoptions...,
+						problem, quad;
+						warn_on_handled_exceptions=false, ntasks, callback,
+						ipoptions...,
 					)
 					done!(callback)
 					@assert keys(us) == keys(unans)
@@ -260,14 +238,13 @@ end
 
 # ╔═╡ 753bba73-ccbf-426f-9e54-64f8f3bbe656
 let p=nothing
-	for (quadconfig, qcunans) in unans
-		if !isempty(first(qcunans))
-			unan = first(first(qcunans))
+	for (quadconfignan, unans_) in unans
+		if !isempty(first(unans_))
+			unan = first(first(unans_))
 			opnan = Orderparameters(problem, unan)
-			@show quadconfig
+			@show quadconfignan
 			@show unan
-			@show opnan.a
-			@show opnan.sqrtdq
+			@show opnan
 			p = plot_orderparameters(problem, opnan)
 			break
 		end
@@ -277,57 +254,47 @@ end
 
 # ╔═╡ 01b947d1-287f-4079-a23d-56e38c540100
 begin
-	quadconfig = first(keys(us))  # first(keys(times))
-	u = first(us[quadconfig])
-	qcquad=GaussKronrod(
-		quadconfig.quadn, quadcutoff;
-		scale=quadconfig.quadscale, tol=quadtol, stretchmode=quadstretchmode,
-	)
-	qcws = Workspace(u0, problem, qcquad; ntasks)
-	(; quadconfig, u)
+	quadconfig_ = first(keys(us))  # first(keys(times))
+	quad_ = GaussKronrod(quadconfig_...; quadoptions...)
+	ws_ = Workspace(problem, quad_; ntasks)
+	u_ = first(us[quadconfig_])
+	op_ = Orderparameters(problem, u_)
+	(; quadconfig_, u_, op_)
 end
 
-# ╔═╡ df2af3df-3a84-431a-99e7-f98c14660753
-op = Orderparameters(problem, u)
-
 # ╔═╡ 7aa22855-90fb-400c-80ee-e15ce653b672
-plot_orderparameters(problem, op)
+plot_orderparameters(problem, op_)
 
 # ╔═╡ aedf3f12-a426-4f08-b3ae-9a04bbc91e5e
-plot_tracefunctions(problem, op; interval=(0.0, 3.0), quadconfig...)
+plot_tracefunctions(problem, quad_, op_; interval=(0.0, 3.0))
 
 # ╔═╡ 438b7e14-1ccc-4bd1-bc38-84faaf2ca1ec
-objective(u, problem, qcquad, qcws)
+objective(u_, problem, quad_, ws_)
 
 # ╔═╡ f2d0316c-35c2-4aaf-9ba9-9de5e08d3c23
-let du=zero(u)
-	dobjective! = ReplicaSymmetryBreaking.make_dobjective(qcws)
-	dobjective!(du, u, problem, qcquad, qcws)
-	(; du, norm=norm(du, Inf))
+let du_=zero(u_)
+	dobjective! = ReplicaSymmetryBreaking.make_dobjective(ws_)
+	dobjective!(du_, u_, problem, quad_, ws_)
+	(; du_, norm=norm(du_, Inf))
 end
 
 # ╔═╡ 4a14560b-2a4a-477d-b882-906c06a03504
-objectives = vcat(
-	(
-		let qcquad=GaussKronrod(
-				quadconfig.quadn, quadcutoff;
-				scale=quadconfig.quadscale, tol=quadtol, stretchmode=quadstretchmode,
-			)
-			qcws = Workspace(u0, problem, qcquad; ntasks)
-			[objective(u, problem, qcquad, qcws) for u in qcus]
-		end
-		for (quadconfig, qcus) in us
-	)...,
-)
+objectives_ = vcat((
+	let quad__=GaussKronrod(quadconfig__...; quadoptions...)
+		ws__ = Workspace(problem, quad__; ntasks)
+		[objective(u__, problem, quad__, ws__) for u__ in us__]
+	end
+	for (quadconfig__, us__) in us
+)...)
 
 # ╔═╡ e741586e-fc4f-4406-8152-aa20cef4e37e
-objectivemax = maximum(objectives)
+objectivemax_ = maximum(objectives_)
 
 # ╔═╡ 76a6bb36-768b-41fd-8b13-fc7450729e3b
-objectivemax .- objectives
+objectivemax_ .- objectives_
 
 # ╔═╡ 2f946e07-9726-4517-b094-0facbf73766a
-objectivemax - minimum(objectives)
+objectivemax_ - minimum(objectives_)
 
 # ╔═╡ Cell order:
 # ╟─e33ec073-447d-40b2-905b-ed0db0c5b999
@@ -347,7 +314,6 @@ objectivemax - minimum(objectives)
 # ╠═c17b023d-f5d3-497c-8bf3-913e9d75f6fa
 # ╠═753bba73-ccbf-426f-9e54-64f8f3bbe656
 # ╠═01b947d1-287f-4079-a23d-56e38c540100
-# ╠═df2af3df-3a84-431a-99e7-f98c14660753
 # ╠═7aa22855-90fb-400c-80ee-e15ce653b672
 # ╠═aedf3f12-a426-4f08-b3ae-9a04bbc91e5e
 # ╠═438b7e14-1ccc-4bd1-bc38-84faaf2ca1ec

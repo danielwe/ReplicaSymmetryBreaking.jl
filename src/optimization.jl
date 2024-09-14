@@ -4,10 +4,8 @@ struct Workspace{T,ntasks}
     buffers::Tracebuffers{T,ntasks}
 end
 
-function Workspace(
-    u::AbstractVector{T}, problem::AbstractRSBProblem{T}, quad::GaussKronrod{T}; ntasks
-) where {T}
-    op = Orderparameters(problem, u)
+function Workspace(problem::AbstractRSBProblem{T}, quad::GaussKronrod{T}; ntasks) where {T}
+    op = Orderparameters(problem)
     buffers = Tracebuffers(T, length(quad.weights); ntasks)
     return Workspace{T,ntasks}(op, buffers)
 end
@@ -80,27 +78,13 @@ end
 
 ## Solver
 function optimize(
-    problem::AbstractRSBProblem{T}, u0::AbstractVector{T}=initstate(problem);
-    quadn, quadcutoff=T(Inf), quadscale=4one(T), quadtol=16eps(T), quadstretchmode=nothing,
-    kwargs...,
-) where {T}
-    quadkws = if isnothing(quadstretchmode)
-        (; scale=T(quadscale), tol=T(quadtol))
-    else
-        (; scale=T(quadscale), tol=T(quadtol), stretchmode=quadstretchmode)
-    end
-    quad = GaussKronrod(quadn, T(quadcutoff); quadkws...)
-    return _optimize(u0, problem, quad; kwargs...)
-end
-
-function _optimize(
-    u0::AbstractVector{T}, problem::AbstractRSBProblem{T}, quad::GaussKronrod{T};
-    warn_on_handled_exceptions=false, ntasks=Threads.threadpoolsize(), callback=nothing,
+    problem::AbstractRSBProblem{T}, quad::GaussKronrod{T}, u0=initstate(problem);
+    ntasks=Threads.threadpoolsize(), warn_on_handled_exceptions=false, callback=nothing,
     max_wall_time=60.0, tol=8eps(T), acceptable_tol=tol, limited_memory_max_history=256,
     ipoptoptions...,
 ) where {T}
     # Allocate workspace and create function and gradient closures
-    ws = Workspace(u0, problem, quad; ntasks)
+    ws = Workspace(problem, quad; ntasks)
     eval_f(u) = nanobjective(u, problem, quad, ws, warn_on_handled_exceptions)
 
     dnanobjective! = make_dnanobjective(ws)

@@ -40,7 +40,7 @@ addipoptoption(p, name, value::Integer) = AddIpoptIntOption(p, string(name), val
 addipoptoption(p, name, value::AbstractFloat) = AddIpoptNumOption(p, string(name), value)
 
 # Set Ipopt callback using an Optimization.jl-compatible callback function
-function setipoptcallback(p, callback)
+function setipoptcallback(p, @nospecialize(callback))
     function intermediate_callback(
         alg_mod::Cint,
         iter_count::Cint,

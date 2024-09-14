@@ -30,8 +30,8 @@ using SpecialFunctions: erfc
 using Ipopt: AddIpoptIntOption, AddIpoptNumOption, AddIpoptStrOption, CreateIpoptProblem,
     IpoptSolve, SetIntermediateCallback
 
-export GaussKronrod, Orderparameters, freeenergy, initstate, Workspace, objective, optimize,
-    SKProblem
+export GaussKronrod, Orderparameters, freeenergy, state, initstate, Workspace, objective,
+    optimize, SKProblem
 
 include("abstract.jl")
 
