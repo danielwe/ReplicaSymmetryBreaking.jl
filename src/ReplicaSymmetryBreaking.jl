@@ -47,4 +47,18 @@ include("optimization.jl")
 
 include("skproblem.jl")
 
+using PrecompileTools: @compile_workload
+
+@compile_workload begin
+    for β in (10.0, Inf), cutoff in (50.0, Inf)
+        problem = SKProblem(; k=2, β)
+        quad = GaussKronrod(cutoff, 128; tol=16.0^(-9))
+        u0 = initstate(problem)
+        for ntasks in (1, 2, 4, 8)
+            ws = Workspace(problem, quad; ntasks)
+            nanobjective(u0, problem, quad, ws)
+        end
+    end
+end
+
 end  # module
