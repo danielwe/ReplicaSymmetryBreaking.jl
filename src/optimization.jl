@@ -33,7 +33,9 @@ function nanobjective(args...; kwargs...)
     try
         return objective(args...)
     catch e
-        handleexceptions(e, AbstractRSBException; kwargs...) || rethrow()
+        # Do not handle Gaussian leak errors, they require parameter changes
+        KnownEx = Union{<:GaussKronrodPrecisionError,<:OrderparametersError}
+        handleexceptions(e, KnownEx; kwargs...) || rethrow()
         return convert(Base.promote_op(objective, typeof.(args)...), NaN)
     end
 end
