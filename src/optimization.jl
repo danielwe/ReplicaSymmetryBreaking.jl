@@ -110,19 +110,16 @@ function _optimize(
     )
     prob.x .= u0
 
-    # Set options related to the problem structure
-    addipoptoption(prob, "bound_relax_factor", zero(T))
-    addipoptoption(prob, "jac_c_constant", "yes")
-    addipoptoption(prob, "jac_d_constant", "yes")
+    # Fixed options
     addipoptoption(prob, "hessian_approximation", "limited-memory")
 
-    # Set options that are always present but user configurable
+    # Default options
     addipoptoption(prob, "max_wall_time", max_wall_time)
     addipoptoption(prob, "tol", T(tol))
     addipoptoption(prob, "acceptable_tol", T(acceptable_tol))
     addipoptoption(prob, "limited_memory_max_history", limited_memory_max_history)
 
-    # Set extra options provided by the user
+    # User-provided options
     foreach(option -> addipoptoption(prob, option...), ipoptoptions)
 
     if !isnothing(callback)
