@@ -87,9 +87,10 @@ end;
 let nodes=quad.nodes
 	@show nodes[end]
 	fig = Figure()
-	ax = Axis(fig[1, 1])
+	ax = Axis(fig[1, 1]; xlabel=L"$x$", ylabel=L"fraction of nodes left of $x$")
+	stairs!(ax, [0; nodes], [0; cumsum(one.(nodes))] / length(nodes); step=:post)
 	vlines!(ax, nodes; color=(:gray, 0.25))
-	xlims!(ax, 0, 16)
+	xlims!(ax, -0.1, 3.1)
 	fig
 end
 
