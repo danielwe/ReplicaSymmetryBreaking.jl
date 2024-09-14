@@ -18,7 +18,7 @@ function errormessage(stack, delim="\n")
     return join(Iterators.map(ex -> sprint(showerror, ex), stack), delim)
 end
 
-function handleexceptions(e::Exception, ::Type{KnownEx}; warn=true) where {KnownEx}
+function handleexceptions(e::Exception, ::Type{KnownEx}, warn=true) where {KnownEx}
     e_unpacked = unpackexceptions(e)
     for ex in e_unpacked
         isa(ex, KnownEx) || return false

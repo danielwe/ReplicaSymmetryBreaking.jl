@@ -29,26 +29,26 @@ function objective(
     return -freeenergy(problem, quad, op, buffers)
 end
 
-function nanobjective(args...; kwargs...)
+function nanobjective(u, problem, quad, ws, warn...)
     try
-        return objective(args...)
+        return objective(u, problem, quad, ws)
     catch e
         # Do not handle Gaussian leak errors, they require parameter changes
         KnownEx = Union{<:GaussKronrodPrecisionError,<:OrderparametersError}
-        handleexceptions(e, KnownEx; kwargs...) || rethrow()
-        return convert(Base.promote_op(objective, typeof.(args)...), NaN)
+        handleexceptions(e, KnownEx, warn...) || rethrow()
+        return convert(Base.promote_op(objective, typeof.((u, problem, quad, ws))...), NaN)
     end
 end
 
 ## Objective gradient
-function make_dobjective(ws::Workspace, _objective::O=objective) where {O}
+function make_dobjective(ws::Workspace)
     dws = make_zero(ws)
     return function dobjective!(du, u, problem, quad, ws)
         _make_zero!(du)
         _make_zero!(dws)
         autodiff(
             Reverse,
-            _objective,
+            objective,
             Active,
             Duplicated(u, du),
             Const(problem),
@@ -59,9 +59,23 @@ function make_dobjective(ws::Workspace, _objective::O=objective) where {O}
     end
 end
 
-function make_dnanobjective(ws; kwargs...)
-    _nanobjective(args...) = nanobjective(args...; kwargs...)
-    return make_dobjective(ws, _nanobjective)
+function make_dnanobjective(ws::Workspace)
+    dws = make_zero(ws)
+    return function dnanobjective!(du, u, problem, quad, ws, warn...)
+        _make_zero!(du)
+        _make_zero!(dws)
+        autodiff(
+            Reverse,
+            nanobjective,
+            Active,
+            Duplicated(u, du),
+            Const(problem),
+            Const(quad),
+            Duplicated(ws, dws),
+            Const.(warn)...,
+        )
+        return nothing
+    end
 end
 
 ## Solver
@@ -87,10 +101,10 @@ function _optimize(
 ) where {T}
     # Allocate workspace and create function and gradient closures
     ws = Workspace(u0, problem, quad; ntasks)
-    eval_f(u) = nanobjective(u, problem, quad, ws; warn=warn_on_handled_exceptions)
+    eval_f(u) = nanobjective(u, problem, quad, ws, warn_on_handled_exceptions)
 
-    dnanobjective! = make_dnanobjective(ws; warn=warn_on_handled_exceptions)
-    eval_grad_f(u, du) = dnanobjective!(du, u, problem, quad, ws)
+    dnanobjective! = make_dnanobjective(ws)
+    eval_grad_f(u, du) = dnanobjective!(du, u, problem, quad, ws, warn_on_handled_exceptions)
 
     # Create and initialize Ipopt problem
     prob = CreateIpoptProblem(
