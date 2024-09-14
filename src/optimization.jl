@@ -57,7 +57,7 @@ function make_dobjective(ws::Workspace, _objective::O=objective) where {O}
     end
 end
 
-function make_nandobjective(ws; kwargs...)
+function make_dnanobjective(ws; kwargs...)
     _nanobjective(args...) = nanobjective(args...; kwargs...)
     return make_dobjective(ws, _nanobjective)
 end
@@ -87,8 +87,8 @@ function _optimize(
     ws = Workspace(u0, problem, quad; ntasks)
     eval_f(u) = nanobjective(u, problem, quad, ws; warn=warn_on_handled_exceptions)
 
-    nandobjective! = make_nandobjective(ws; warn=warn_on_handled_exceptions)
-    eval_grad_f(u, du) = nandobjective!(du, u, problem, quad, ws)
+    dnanobjective! = make_dnanobjective(ws; warn=warn_on_handled_exceptions)
+    eval_grad_f(u, du) = dnanobjective!(du, u, problem, quad, ws)
 
     # Create and initialize Ipopt problem
     prob = CreateIpoptProblem(
