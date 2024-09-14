@@ -50,7 +50,7 @@ ntasks = Threads.threadpoolsize()
 
 # ╔═╡ 907b7363-234d-46ae-aacd-6379017238dd
 begin
-	k = 6
+	k = 10
 	β = Inf
 	problem = SKProblem(; k, β)
 	u0 = initstate(problem)
@@ -66,7 +66,7 @@ end;
 
 # ╔═╡ f41354f8-a0a2-445a-95c9-352fa7290107
 begin
-	quadn = 60
+	quadn = 88
 	quadscale = 4.0
 	quadstretchmode = :exp
 	quad = GaussKronrod(
@@ -220,11 +220,12 @@ begin
 	# tolerance throughout the optimization
 	us, unans, times = Dict(), Dict(), Dict()
 	let callback=ProgressCallback(problem), ipoptions=(
-		tol=2.0^(-49), print_level=3, max_wall_time=120.0,
+		tol=2.0^(-49), max_wall_time=60.0, print_level=3,
+		output_file="ipopt.log", file_print_level=5,
 	)
 		quadoptions = (; quadcutoff, quadtol, quadstretchmode)
 		@info quadoptions
-		for quadn in 60, quadscale in 4.0
+		for quadn in 88, quadscale in 4.0
 			reset!(callback)
 			quadconfig = (; quadn, quadscale)
 			@info quadconfig
