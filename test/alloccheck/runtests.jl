@@ -12,4 +12,4 @@ end
 
 testnoallocs(f, args) = @test noallocs(f, args)
 
-@testset "AllocCheck.jl child process" commontestsets(Dict(objective => testnoallocs))
+@testset "AllocCheck.jl child process" commontestrunner(objective, (testnoallocs,))

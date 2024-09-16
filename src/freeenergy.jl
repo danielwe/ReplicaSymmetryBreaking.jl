@@ -38,7 +38,7 @@ end
 
 function trace(h, G, sqrtqlast, quad, integrandbuffer)
     Z = gaussnorm(sqrtqlast)
-    integrand(ν, Gν) = (Gν + ν) * wrappedgaussian(ν, h, sqrtqlast; normalized=false) / Z
+    integrand(ν, Gν) = (Gν + abs(ν)) * wrappedgaussian(ν, h, sqrtqlast; normalized=false) / Z
     set_abstolscale!(quad, zero(eltype(G)))
     I = integrate(integrand, quad, G; integrandbuffer)
     checkgaussianleak(h, sqrtqlast, cutoff(quad))
@@ -106,18 +106,18 @@ function Gmap_inner!(indices, Gnext, G, ai, sqrtdqi, quad, integrandbuffer, Z, d
 end
 
 function Gnext_index(j, G, ai, sqrtdqi, quad; Z=gaussnorm(sqrtdqi), kwargs...)
-    μ = getnode(quad, j)
+    μabs = abs(getnode(quad, j))
     dqi = sqrtdqi^2
     mai = -ai
-    μpadq, μmadq = muladd(ai, dqi, μ), muladd(mai, dqi, μ)
-    shift = 2mai * μ
+    μabspadq, μabsmadq = muladd(ai, dqi, μabs), muladd(mai, dqi, μabs)
+    shift = 2mai * μabs
     denom = sqrt(2one(sqrtdqi)) * sqrtdqi
     # Is it possible to compute I1 without subtraction => cancellation?
-    I1 = ((exp(shift) * erfc(μmadq / denom)) - erfc(μpadq / denom)) / 2
+    I1 = ((exp(shift) * erfc(μabsmadq / denom)) - erfc(μabspadq / denom)) / 2
     function integrand(ν, Gν)
-        g1 = gaussian(ν - μpadq, sqrtdqi; normalized=false)
-        g2 = gaussian(ν + μmadq, sqrtdqi, shift; normalized=false)
-        return ((g1 + g2) * expm1(ai * Gν) / Z) + (I1 * exp(-ν))
+        g1 = gaussian(abs(ν) - μabspadq, sqrtdqi; normalized=false)
+        g2 = gaussian(abs(ν) + μabsmadq, sqrtdqi, shift; normalized=false)
+        return ((g1 + g2) * expm1(ai * Gν) / Z) + (I1 * exp(-abs(ν)))
     end
     I = integrate(integrand, quad, G; kwargs...)
     return log1p(I) / ai

@@ -65,7 +65,7 @@ quad = GaussKronrod(Inf, 88, 4.0; quadoptions...);
 # ╔═╡ cab48286-823e-475c-ac76-874f17b3a80b
 # Quadrature sanity checks
 let integrate=ReplicaSymmetryBreaking.integrate
-	f1(x) = exp(-x)
+	f1(x) = exp(-abs(x))
 	f2(x) = exp(-π * x^2 / 4)
 	@show integrate(f1, quad)
 	@show integrate(f2, quad)
@@ -75,10 +75,10 @@ end;
 let nodes=quad.nodes
 	@show nodes[end]
 	fig = Figure()
-	ax = Axis(fig[1, 1]; xlabel=L"$x$", ylabel=L"fraction of nodes left of $x$")
+	ax = Axis(fig[1, 1]; xlabel=L"$x$", ylabel=L"fraction of nodes below $|x|$")
 	stairs!(ax, [0; nodes], [0; cumsum(one.(nodes))] / length(nodes); step=:post)
 	vlines!(ax, nodes; color=(:gray, 0.25))
-	xlims!(ax, -0.1, 3.1)
+	xlims!(ax, sort(flipsign.([-0.1, 3.1], quad.cutoff)))
 	fig
 end
 

@@ -22,6 +22,6 @@ function fieldterm((; β)::SKProblem{T}, (; a, sqrtdq)::Orderparameters{T}) wher
     return muladd(-β, dq0^2, overlapterm) / 4
 end
 
-G0((; β)::SKProblem{T}, μ::T) where {T} = log1pexp(-2β * μ) / β
+G0((; β)::SKProblem{T}, μ::T) where {T} = log1pexp(-2β * abs(μ)) / β
 
 heff(problem::SKProblem) = abs(problem.h)

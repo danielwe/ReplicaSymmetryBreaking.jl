@@ -1,16 +1,31 @@
 using ReplicaSymmetryBreaking: GaussKronrod, initstate, Workspace, objective, SKProblem
 using Test: @testset
 
-function commontestsets(testfs; β=(10.0, Inf), cutoff=(50.0, Inf))
+function commontestsets(testf; β=(10.0, Inf), cutoff=(50.0, Inf))
     @testset "β = $β_, cutoff = $cutoff_" for β_ in β, cutoff_ in cutoff
-        problem = SKProblem(; k=2, β=β_)
-        quad = GaussKronrod(cutoff_, 128; tol=16.0^(-9))
-        ws = Workspace(problem, quad; ntasks=1)
-        u0 = initstate(problem)
-        args = Dict(objective => (u0, problem, quad, ws))
-        for (f, testf) in pairs(testfs)
-            testf(f, args[f])
-        end
+        testf(β_, cutoff_)
     end
     return nothing
+end
+
+function commontestrunner(::typeof(objective), testfs; kwargs...)
+    commontestsets(kwargs...) do β, cutoff
+        u0, problem = commonproblem(β)
+        quad, ws = commonsetup(problem, cutoff)
+        for testf in testfs
+            testf(objective, (u0, problem, quad, ws))
+        end
+    end
+end
+
+function commonproblem(β; k=2)
+    problem = SKProblem(; k, β)
+    u0 = initstate(problem)
+    return (u0, problem)
+end
+
+function commonsetup(problem, cutoff; n=128, tol=16.0^(-9), ntasks=1)
+    quad = GaussKronrod(cutoff, n; tol)
+    ws = Workspace(problem, quad; ntasks)
+    return (quad, ws)
 end

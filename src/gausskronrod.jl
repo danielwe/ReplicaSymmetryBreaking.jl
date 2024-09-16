@@ -26,8 +26,8 @@ struct GaussKronrod{T<:AbstractFloat}
         else
             b = cutoff / 2
             nodes .= (nodes .+ 1) .* b  # (0, cutoff)
-            weights .*= b
-            gaussweights .*= b
+            weights .*= abs(b)
+            gaussweights .*= abs(b)
         end
         return new{T}(cutoff, nodes, weights, gaussweights, tol, Ref(abstolscale))
     end

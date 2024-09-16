@@ -32,5 +32,5 @@ end
         return nothing
     end
 
-    commontestsets(Dict(objective => testinferrednoallocs))
+    commontestrunner(objective, (testinferrednoallocs,))
 end
