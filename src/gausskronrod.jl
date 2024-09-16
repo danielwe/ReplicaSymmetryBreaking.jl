@@ -1,5 +1,5 @@
 ## Quadrature on (0, b)
-struct GaussKronrod{T<:AbstractFloat}
+struct GaussKronrod{T} <: AbstractRSBQuadrature{T}
     cutoff::T
     nodes::Vector{T}
     weights::Vector{T}
@@ -33,17 +33,8 @@ struct GaussKronrod{T<:AbstractFloat}
     end
 end
 
-EnzymeRules.inactive_type(::Type{<:GaussKronrod}) = true
-
 getnode(quad::GaussKronrod, i) = quad.nodes[i]
 cutoff(quad::GaussKronrod) = quad.cutoff
-
-function set_abstolscale!(quad::GaussKronrod{T}, abstolscale::T) where {T}
-    quad.abstolscale[] = abstolscale
-    return nothing
-end
-
-EnzymeRules.inactive(::typeof(set_abstolscale!), args...) = true
 
 ## Stretch t ∈ (-1, 1) to ν ∈ (0, Inf)
 # Cancellation for ν near 0, but map must be smooth, so can't avoid -1 -> 0 or 1 -> 0
