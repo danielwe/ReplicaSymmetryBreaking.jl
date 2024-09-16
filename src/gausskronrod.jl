@@ -1,5 +1,6 @@
 ## Quadrature on (0, b)
-struct GaussKronrod{T<:AbstractFloat,inf}
+struct GaussKronrod{T<:AbstractFloat}
+    cutoff::T
     nodes::Vector{T}
     weights::Vector{T}
     gaussweights::Vector{T}
@@ -28,19 +29,14 @@ struct GaussKronrod{T<:AbstractFloat,inf}
             weights .*= b
             gaussweights .*= b
         end
-        return new{T,inf}(nodes, weights, gaussweights, tol, Ref(abstolscale))
+        return new{T}(cutoff, nodes, weights, gaussweights, tol, Ref(abstolscale))
     end
 end
 
 EnzymeRules.inactive_type(::Type{<:GaussKronrod}) = true
 
 getnode(quad::GaussKronrod, i) = quad.nodes[i]
-
-function cutoff(quad::GaussKronrod{T,inf}) where {T,inf}
-    n = length(quad.gaussweights)
-    midpoint = quad.nodes[n + 1]
-    return inf ? copysign(oftype(midpoint, Inf), midpoint) : (2midpoint)
-end
+cutoff(quad::GaussKronrod) = quad.cutoff
 
 function set_abstolscale!(quad::GaussKronrod{T}, abstolscale::T) where {T}
     quad.abstolscale[] = abstolscale
