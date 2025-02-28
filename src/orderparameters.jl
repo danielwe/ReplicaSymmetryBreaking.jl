@@ -11,22 +11,11 @@ struct Orderparameters{T<:AbstractFloat}
     end
 end
 
-function _make_zero!(op::Orderparameters)
-    _make_zero!(op.a)
-    _make_zero!(op.sqrtdq)
-    return nothing
-end
-
 # Heuristic initial guess for problem
-function Orderparameters(problem::AbstractRSBProblem{T}) where {T}
+function Orderparameters(problem::AbstractRSBProblem{T,inf}) where {T,inf}
     (; k, β) = problem
-    ξ = if isinf(β)
-        range(one(β), 0, k + 2)[2:(end - 1)]
-    else
-        range(β / (4 + β), 0, k + 1)[1:(end - 1)]
-    end
-    a = 2 .* ξ ./ (1 .- ξ)
-    q = if isinf(β)
+    a = range(oneunit(β), 0, k + 1)[begin:(end-1)]
+    q = if inf
         [oneunit(T); range(oneunit(T), zero(T), k + 2)]
     else
         range(oneunit(T), zero(T), k + 3)
@@ -39,19 +28,19 @@ end
 
 # Validate order parameters
 function checkorderparameters(
-    op::Orderparameters{T}, problem::AbstractRSBProblem{T}
-) where {T}
+    op::Orderparameters{T}, problem::AbstractRSBProblem{T,inf}; checksums=true
+) where {T,inf}
     (; a, sqrtdq) = op
     (; k, β) = problem
     sumdq = sum(x -> x^2, sqrtdq)  # Overflow not an issue since sumdq ≈ 1 unless invalid
     if !(
         # (length(sqrtdq) == (k + 2))  # Enforced by constructor if length(a) == k
-        isapprox(sumdq, 1)
-        && all(sqrtdqi -> (sqrtdqi > 0), @view sqrtdq[(begin + 1):end])
-        && ((isinf(β) && (sqrtdq[begin] == 0)) || (!isinf(β) && (sqrtdq[begin] > 0)))
+        ((!checksums) || isapprox(sumdq, 1))
+        && (inf ? (sqrtdq[begin] == 0) : (sqrtdq[begin] > 0))
+        && all(sqrtdqi -> (sqrtdqi > 0), @view sqrtdq[(begin+1):end])
         && (length(a) == k)
-        && (β > a[begin])
-        && all(i -> (a[i] > a[i + 1]), eachindex(a)[begin:(end - 1)])
+        && ((!checksums) || (β > a[begin]))
+        && all(i -> (a[i] > a[i+1]), eachindex(a)[begin:(end-1)])
         && (a[end] > 0)
     )
         throw(OrderparametersError(op, problem, sumdq))
@@ -61,8 +50,10 @@ end
 
 EnzymeRules.inactive(::typeof(checkorderparameters), args...) = true
 
-struct OrderparametersError{T,P<:AbstractRSBProblem{T}} <: AbstractRSBException
-    op::Orderparameters{T}
+struct OrderparametersError{
+    T,O<:Orderparameters{T},P<:AbstractRSBProblem{T}
+} <: AbstractRSBException
+    op::O
     problem::P
     sumdq::T
 end

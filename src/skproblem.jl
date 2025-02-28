@@ -1,27 +1,30 @@
-struct SKProblem{T} <: AbstractRSBProblem{T}
+struct SKProblem{T,inf} <: AbstractRSBProblem{T,inf}
     k::Int
     β::T
     h::T
 
-    SKProblem(k, β::T, h::T) where {T} = new{T}(k, β, h)
+    SKProblem(k, β::T, h::T) where {T} = new{T,β == Inf}(k, β, h)
 end
 
 SKProblem(; k, β, h=zero(β)) = SKProblem(k, β, h)
 
-function fieldterm((; β)::SKProblem{T}, (; a, sqrtdq)::Orderparameters{T}) where {T}
+function fieldterm((; β)::SKProblem{T,inf}, (; a, sqrtdq)::Orderparameters{T}) where {T,inf}
     qci = dq0 = first(sqrtdq)^2
-    overlapterm = zero(eltype(a)) * (zero(dq0)^2)
-    sqrtdqbulk = @view sqrtdq[(begin + 1):(end - 1)]
+    sqrtdqbulk = @view sqrtdq[(begin+1):(end-1)]
+    overlapterm = zero(eltype(a)) * (zero(typeof(dq0))^2)
     for i in eachindex(a, sqrtdqbulk)
-        dq = sqrtdqbulk[i]^2
-        qcinext = qci + dq
-        overlapterm -= a[i] * dq * (qci + qcinext)
+        dqi = sqrtdqbulk[i]^2
+        qcinext = qci + dqi
+        overlapterm = muladd(-a[i], dqi * (qci + qcinext), overlapterm)
         qci = qcinext
     end
-    isinf(β) && return overlapterm / 4
-    return muladd(-β, dq0^2, overlapterm) / 4
+    if !inf
+        overlapterm = muladd(-β, dq0^2, overlapterm)
+    end
+    return overlapterm / 4
 end
 
-G0((; β)::SKProblem{T}, μ::T) where {T} = log1pexp(-2β * abs(μ)) / β
+G0(::SKProblem{T,true}, ::T) where {T} = zero(T)
+G0((; β)::SKProblem{T,false}, μabs::T) where {T} = log1pexp(-2(β * μabs)) / β
 
-heff(problem::SKProblem) = abs(problem.h)
+geth(problem::SKProblem) = problem.h

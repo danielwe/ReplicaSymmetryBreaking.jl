@@ -18,13 +18,16 @@ end
     @test check_all_qualified_accesses_via_owners(RSB) === nothing
     @test check_all_explicit_imports_are_public(RSB) === nothing
     let ignore=(
+        # Base & submodules
         :map,
         :promote_op,
         :require_one_based_indexing,
         :RefValue,
         :threadpoolsize,
+        # Enzyme
         :inactive,
         :inactive_type,
+        Symbol("@import_rrule"),
         :API,
         :fast_math!,
         :runtimeActivity!,
@@ -34,6 +37,18 @@ end
         # :looseTypeAnalysis!,
         # :inlineall!,
         # :strictAliasing!,
+        # ApproxFun
+        :plan_transform,
+        # AbstractFFTs
+        :AdjointStyle,
+        :Plan,
+        :adjoint_mul,
+        # FastTransforms
+        :ChebyshevTransformPlan,
+        :_cheb1_rescale!,
+        :_cheb2_rescale!,
+        # FFTW
+        :r2rFFTWPlan,
     )
         @test check_all_qualified_accesses_are_public(RSB; ignore) === nothing
     end

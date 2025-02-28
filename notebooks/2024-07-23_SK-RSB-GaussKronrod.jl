@@ -72,13 +72,13 @@ let integrate=ReplicaSymmetryBreaking.integrate
 end;
 
 # ╔═╡ b46036e0-2a7f-491e-abef-c5c956493e3b
-let nodes=quad.nodes
+let nodes=getnodes(quad)
 	@show nodes[end]
 	fig = Figure()
 	ax = Axis(fig[1, 1]; xlabel=L"$x$", ylabel=L"fraction of nodes below $|x|$")
 	stairs!(ax, [0; nodes], [0; cumsum(one.(nodes))] / length(nodes); step=:post)
 	vlines!(ax, nodes; color=(:gray, 0.25))
-	xlims!(ax, sort(flipsign.([-0.1, 3.1], quad.cutoff)))
+	xlims!(ax, sort(flipsign.([-0.1, 3.1], cutoff(quad))))
 	fig
 end
 
@@ -105,6 +105,9 @@ let v=ReplicaSymmetryBreaking.Enzyme.onehot(u0)[1], Hv=similar(v)
 end
   ╠═╡ =#
 
+# ╔═╡ 3a572f35-472e-481f-8c38-5d1453186e8c
+plot_tracefunctions(problem, quad, op0; interval=(0.0, 3.0))
+
 # ╔═╡ bdba40e8-d461-44c7-b077-a58549331b3f
 function plot_orderparameters(problem, op)
 	(; β) = problem
@@ -126,10 +129,9 @@ plot_orderparameters(problem, op0)
 	fig = Figure()
 	ax = Axis(fig[1, 1]; xlabel=L"\mu", ylabel=L"\mathcal{G}(\mu)")
 	
-	(; nodes) = quad
-	T = eltype(nodes)
-	buffers = ReplicaSymmetryBreaking.Tracebuffers(T, length(nodes); ntasks)
-	(; kernelbuffers, integrandbuffers) = buffers
+	nodes = getnodes(quad)
+	buffers = ReplicaSymmetryBreaking.Tracebuffers(quad; ntasks)
+	(; kernelbuffers, quadbuffers) = buffers
 	G, Gnext = kernelbuffers
 	map!(μ -> ReplicaSymmetryBreaking.G0(problem, μ), G, nodes)
 	
@@ -140,16 +142,13 @@ plot_orderparameters(problem, op0)
 	sqrtdqbulk = sqrtdq[(begin + 1):(end - 1)]
     for i in eachindex(a, sqrtdqbulk)
 		ai, sqrtdqi = a[i], sqrtdqbulk[i]
-        ReplicaSymmetryBreaking.Gmap!(Gnext, G, ai, sqrtdqi, quad, integrandbuffers)
+        ReplicaSymmetryBreaking.Gmap!(Gnext, G, ai, sqrtdqi, quad, quadbuffers)
         Gnext, G = G, Gnext
 		
 		lines!(ax, nodes[I], G[I])
     end
 	return fig
 end;
-
-# ╔═╡ 3a572f35-472e-481f-8c38-5d1453186e8c
-plot_tracefunctions(problem, quad, op0; interval=(0.0, 3.0))
 
 # ╔═╡ 09cce4ed-0807-450f-b1c8-34c9015db9b7
 begin

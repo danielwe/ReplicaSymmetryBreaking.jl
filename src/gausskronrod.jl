@@ -5,18 +5,17 @@ struct GaussKronrod{T} <: AbstractRSBQuadrature{T}
     weights::Vector{T}
     gaussweights::Vector{T}
     tol::T
-    abstolscale::Base.RefValue{T}
+    atolscale::Base.RefValue{T}
 
     function GaussKronrod(
-        cutoff::T, n, scale=4one(T); tol=16eps(T), abstolscale=zero(T), stretchmode=:exp
+        cutoff::T, order, scale=4one(T); tol=16eps(T), atolscale=zero(T), stretchmode=:exp
     ) where {T}
-        nodes_, weights_, gaussweights_ = kronrod(T, n)
+        nodes_, weights_, gaussweights_ = kronrod(T, order)
         Base.require_one_based_indexing(nodes_, weights_, gaussweights_)
-        nodes = [nodes_; -nodes_[(end - 1):-1:1]]  # (-1, 0] ∪ (0, 1) = (-1, 1)
-        weights = [weights_; weights_[(end - 1):-1:1]]
-        gaussweights = [gaussweights_; gaussweights_[fld(n, 2):-1:1]]
-        inf = isinf(cutoff)
-        if inf
+        nodes = [nodes_; -nodes_[(end-1):-1:1]]  # (-1, 0] ∪ (0, 1) = (-1, 1)
+        weights = [weights_; weights_[(end-1):-1:1]]
+        gaussweights = [gaussweights_; gaussweights_[fld(order, 2):-1:1]]
+        if isinf(cutoff)
             (scale > 0) || throw(ArgumentError("scale must be positive"))
             b = copysign(T(scale), cutoff)
             jac = stretchjac.(nodes, b, stretchmode)
@@ -29,45 +28,27 @@ struct GaussKronrod{T} <: AbstractRSBQuadrature{T}
             weights .*= abs(b)
             gaussweights .*= abs(b)
         end
-        return new{T}(cutoff, nodes, weights, gaussweights, tol, Ref(abstolscale))
+        return new{T}(cutoff, nodes, weights, gaussweights, tol, Ref(atolscale))
     end
 end
 
-getnode(quad::GaussKronrod, i) = quad.nodes[i]
-cutoff(quad::GaussKronrod) = quad.cutoff
-
-## Stretch t ∈ (-1, 1) to ν ∈ (0, Inf)
-# Cancellation for ν near 0, but map must be smooth, so can't avoid -1 -> 0 or 1 -> 0
-# :exp:   ν = -b * log((1 - t) / 2); dν = b * dt / (t - 1)
-# :power: ν = b * (1 + t) / (1 - t); dν = 2b / (1 - t)^2
-function stretchmap(t, b, mode)
-    (mode == :exp) && return -b * log((1 - t) / 2)
-    (mode == :power) && return b * (1 + t) / (1 - t)
-    throw(ArgumentError("invalid mode: must be :exp or :power"))
-end
-
-function stretchjac(t, b, mode)
-    (mode == :exp) && return abs(b) / (1 - t)
-    (mode == :power) && return 2abs(b) / ((1 - t)^2)
-    throw(ArgumentError("invalid mode: must be :exp or :power"))
-end
-
 ## Integrate f(ν, args...) over (0, cutoff(quad))
+createbuffer(quad::GaussKronrod) = similar(quad.weights)
+
 function integrate(
-    f::F, quad::GaussKronrod{T}, args...;
-    integrandbuffer::AbstractVector{T}=similar(quad.weights)
+    f::F, quad::GaussKronrod{T}, args...; quadbuffer::AbstractVector{T}=createbuffer(quad)
 ) where {F,T}
-    map!(f, integrandbuffer, quad.nodes, args...)
-    I = dot(integrandbuffer, quad.weights)
-    checkgausskronrodprecision(I, integrandbuffer, quad)
+    map!(f, quadbuffer, quad.nodes, args...)
+    I = dot(quadbuffer, quad.weights)
+    checkgausskronrodprecision(I, quadbuffer, quad)
     return I
 end
 
-function checkgausskronrodprecision(I, integrandbuffer, quad)
-    Base.require_one_based_indexing(integrandbuffer)
-    @views Igauss = dot(integrandbuffer[2:2:end], quad.gaussweights)
+function checkgausskronrodprecision(I, quadbuffer, quad)
+    Base.require_one_based_indexing(quadbuffer)
+    @views Igauss = dot(quadbuffer[2:2:end], quad.gaussweights)
     err, Iabs = abs(I - Igauss), abs(I)
-    tol, scale = quad.tol, oftype(Iabs, quad.abstolscale[])
+    tol, scale = quad.tol, oftype(Iabs, quad.atolscale[])
     if err >= (tol * max(Iabs, scale))
         throw(GaussKronrodPrecisionError(err / Iabs, err / scale, tol))
     end
