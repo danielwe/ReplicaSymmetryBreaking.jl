@@ -1,80 +1,134 @@
-## Preallocated buffers for calculating the trace term
-# struct Tracebuffers{T,Q<:Tuple}
-#     kernelbuffers::Tuple{Vector{T},Vector{T}}
-#     quadbuffers::Q
-#
-#     function Tracebuffers(quad::AbstractRSBQuadrature{T}; ntasks) where {T}
-#         N = lengthnodes(quad)
-#         kernelbuffers = (zeros(T, N), zeros(T, N))
-#         quadbuffers = ntuple(_ -> createbuffer(quad), ntasks)
-#         return new{T,typeof(quadbuffers)}(kernelbuffers, quadbuffers)
-#     end
-# end
-
-@inline evaluate(f::F, x) where {F<:Function} = f(x)
-
-## Free energy calculation
+### free energy calculation
 function freeenergy(
-    problem::AbstractRSBProblem{T},
-    quad::AbstractRSBQuadrature{T},
-    op::Orderparameters{T},
-    # buffers::Tracebuffers{T},
+    problem::AbstractDisorderProblem{T}, quad::AbstractQuadrature{T}, op::Orderparameters{T}
 ) where {T}
     return fieldterm(problem, op) + traceterm(problem, quad, op)
 end
 
-function traceterm(problem, quad, (; a, sqrtdq))
-    transform = gettransform(quad)
-    GJfirst(t) = G0(problem, apply(transform, t)) * jacobian(transform, t)
-    isempty(a) && return -Gtrace(GJfirst, geth(problem), last(sqrtdq), quad)
-    a1, sqrtdq1 = a[begin], sqrtdq[begin+1]
-    GJ = Gmap(GJfirst, a1, sqrtdq1, quad)
-    arest, sqrtdqrest = @views (a[(begin+1):end], sqrtdq[(begin+2):(end-1)])
-    for i in eachindex(arest, sqrtdqrest)
-        GJ = Gmap(GJ, arest[i], sqrtdqrest[i], quad)
+# function traceterm(problem, quad, op)
+#     tf = gettransform(quad)
+#     GJfirst(t) = G0(problem, apply(tf, t)) * applyjacobian(tf, t)
+#     # XXX: We currently do not support a nonzero mean coupling and magnetization
+#     # heffective = externalfield(problem) + meancoupling(problem) * magnetization(op)
+#     heffective = externalfield(problem)
+#     a = blockparams(op)
+#     sqrtdq = overlapparams(op)
+#     # unroll the first iteration to distinguish GJfirst from GJ (different types)
+#     trace = if isempty(a)
+#         Gtrace(GJfirst, heffective, last(sqrtdq), quad)
+#     else
+#         a1, sqrtdq1 = a[begin], sqrtdq[begin+1]
+#         GJ = Gmap(GJfirst, a1, sqrtdq1, quad)
+#         abulk, sqrtdqbulk = @views (a[(begin+1):end], sqrtdq[(begin+2):(end-1)])
+#         for i in eachindex(abulk, sqrtdqbulk)
+#             GJ = Gmap(GJ, abulk[i], sqrtdqbulk[i], quad)
+#         end
+#         Gtrace(GJ, heffective, last(sqrtdq), quad)
+#     end
+#     return -trace
+# end
+
+function traceterm(problem, quad, op)
+    # XXX: We currently do not support a nonzero mean coupling/magnetization
+    # heffective = externalfield(problem) + meancoupling(problem) * magnetization(op)
+    heffective = externalfield(problem)
+    qf = qfinal(op)
+    tf = gettransform(quad)
+    GJfirst(t) = G0(problem, apply(tf, t)) * applyjacobian(tf, t)
+    trace = if length(op) > 0
+        # unroll the first iteration to distinguish GJfirst from GJ (different types)
+        (a_first, sqrtdq_first, b_first), op_rest = Iterators.peeled(op)
+        GJ = Gmap(GJfirst, problem, a_first, sqrtdq_first, b_first, quad)
+        for (ai, sqrtdqi, bi) in op_rest
+            GJ = Gmap(GJ, problem, ai, sqrtdqi, bi, quad)
+        end
+        Gtrace(GJ, heffective, qf, quad)
+    else
+        Gtrace(GJfirst, heffective, qf, quad)
     end
-    return -Gtrace(GJ, geth(problem), last(sqrtdq), quad)
+    return -trace
 end
 
-function Gtrace(GJ::F, h, sqrtqlast, quad::AbstractRSBQuadrature{T}) where {F,T}
-    transform = gettransform(quad)
-    C = gaussnorm(sqrtqlast)
-    return integralwithgaussian(abs(h), sqrtqlast, quad, transform) do t
-        # NOTE: for GaussKronrod, `integrate` should simply pass integers to the integrand,
-        # and a corresponding Transform type should be implemented
-        μ = apply(transform, t)
-        Jμ = jacobian(transform, t)
-        GJμ = evaluate(GJ, t)
-        return C * (GJμ + Jμ * μ) * wrappedgaussian(μ, h, sqrtqlast; normalized=false)
+function Gtrace(GJ::F, heffective, sqrtqlast, quad::AbstractQuadrature{T}) where {F,T}
+    tf = gettransform(quad)
+    Zinv = gaussnorm(sqrtqlast)
+    return withgaussianinflectionpoints(abs(heffective), sqrtqlast) do ips
+        @inline
+        withgtsorted(ips, 2sqrtqlast) do gtips
+            @inline
+            bps = apply.((tf,), gtips)
+            integratewithapproximant(GJ, quad, bps) do t, GJt
+                μ, Jμ = apply(tf, t), applyjacobian(tf, t)
+                GJμ = GJt
+                wg = wrappedgaussian(μ, heffective, sqrtqlast; normalized=false)
+                return Zinv * (GJμ + Jμ * μ) * wg
+            end
+        end
     end
 end
 
-function Gmap(GJ::F, ai, sqrtdqi, quad::AbstractRSBQuadrature{T}) where {F,T}
+# function Gmap(GJ::F, ai, sqrtdqi, quad::AbstractQuadrature{T}) where {F,T}
+#     scale = getscale(GJ, ai, sqrtdqi, quad)
+#     ttail_ref = Ref{T}(last(limits(quad)))  # TODO: can we make this conditional on approximantiscallable?
+#     Ginterp = approximate(quad) do ts, order
+#         Gs = similar(ts)
+#         indices = eachindex(Gs, ts)
+#         for i in ((order isa Descending) ? reverse(indices) : indices)
+#             t = ts[i]
+#             G = Gnext(t, GJ, ai, sqrtdqi, quad; scale)
+#             if (order isa Union{Ascending,Descending}) && (G <= zero(G))
+#                 # This optimization relies on gettransform(quad) not flipping the order of
+#                 # the limits of integration, i.e., that it has a positive Jacobian. This is
+#                 # guaranteed by the constructor in all transforms implemented.
+#                 tail = (order isa Descending) ? @view(Gs[begin:i]) : @view(Gs[i:end])
+#                 fill!(tail, zero(eltype(Gs)))
+#                 ttail_ref[] = min(ttail_ref[], t)  # XXX: not thread safe; make atomic if approximate is made multithreaded
+#                 break
+#             end
+#             Gs[i] = G
+#         end
+#         return Gs
+#     end
+#     return if approximantiscallable(quad)
+#         ttail = ttail_ref[]  # reassignment to avoid boxing in closures
+#         t -> ((t < ttail) ? Ginterp(t) : zero(Base.promote_op(Ginterp, typeof(t))))
+#     else
+#         Ginterp
+#     end
+# end
+
+function Gmap(GJ::F, problem, quad::AbstractQuadrature{T}, op, i) where {F,T}
     scale = getscale(GJ, ai, sqrtdqi, quad)
-    ttail_ = oneunit(T)
-    Ginterp = approximate(quad) do ts
-        reversed = descendingknots(quad)
+    ttail_ref = Ref{T}(last(limits(quad)))  # TODO: can we make this conditional on approximantiscallable?
+    Ginterp = approximate(quad) do ts, order
         Gs = similar(ts)
         indices = eachindex(Gs, ts)
-        for i in (reversed ? reverse(indices) : indices)
+        for i in ((order isa Descending) ? reverse(indices) : indices)
             t = ts[i]
             G = Gnext(t, GJ, ai, sqrtdqi, quad; scale)
-            if G <= zero(G)
-                tail = reversed ? @view(Gs[begin:i]) : @view(Gs[i:end])
+            if (order isa Union{Ascending,Descending}) && (G <= zero(G))
+                # This optimization relies on gettransform(quad) not flipping the order of
+                # the limits of integration, i.e., that it has a positive Jacobian. This is
+                # guaranteed by the constructor in all transforms implemented.
+                tail = (order isa Descending) ? @view(Gs[begin:i]) : @view(Gs[i:end])
                 fill!(tail, zero(eltype(Gs)))
-                ttail_ = t
+                ttail_ref[] = min(ttail_ref[], t)  # XXX: not thread safe; make atomic if approximate is made multithreaded
                 break
             end
             Gs[i] = G
         end
         return Gs
     end
-    ttail = ttail_  # reassignment to avoid boxing in closures
-    return t -> ((t < ttail) ? Ginterp(t) : zero(Base.promote_op(Ginterp, typeof(t))))
+    return if approximantiscallable(quad)
+        ttail = ttail_ref[]  # reassignment to avoid boxing in closures
+        t -> ((t < ttail) ? Ginterp(t) : zero(Base.promote_op(Ginterp, typeof(t))))
+    else
+        Ginterp
+    end
 end
 
-function getscale(GJ::F, ai, sqrtdqi, quad::AbstractRSBQuadrature{T}) where {F,T}
-    return first(_Gnext(first(getlimits(quad)), GJ, ai, sqrtdqi, quad))
+function getscale(GJ::F, ai, sqrtdqi, quad::AbstractQuadrature{T}) where {F,T}
+    return first(_Gnext(first(limits(quad)), GJ, ai, sqrtdqi, quad))
 end
 
 EnzymeRules.inactive(::typeof(getscale), args...) = true
@@ -85,38 +139,71 @@ function Gnext(t, GJ::F, ai, sqrtdqi, quad; kwargs...) where {F}
 end
 
 function _Gnext(t, GJ::F, ai, sqrtdqi, quad; kwargs...) where {F}
-    C = gaussnorm(sqrtdqi)
-    transform = gettransform(quad)
-    μ = apply(transform, t)
-    isinf(μ) && return zero(C * μ), oneunit(μ)  # strictly speaking Jμ == Inf, but that's not relevant and would result in an unwelcome NaN
-    Jμ = jacobian(transform, t)
-    CJμ = C * Jμ
+    Zinv = gaussnorm(sqrtdqi)
+    tf = gettransform(quad)
+    μ = apply(tf, t)
+    isinf(μ) && return zero(Zinv * μ), oneunit(μ)  # strictly speaking Jμ == Inf, but that's irrelevant and would result in a spurious NaN downstream
+    Jμ = applyjacobian(tf, t)
+    Jμ_Z = Zinv * Jμ
     dqi = sqrtdqi^2
     μpadq, μmadq = muladd(ai, dqi, μ), muladd(-ai, dqi, μ)
-    # g2shift = -2(ai * μ)
     g2coeff = exp(-2(ai * μ))
     # I1 and I2 are analytically solved parts of the integral that we bake into the
     # integrand for correct quadrature error estimates
-    Cerf = C * sqrt(oftype(sqrtdqi, π))  # sqrt of gaussian exponent scaling factor
-    I1, I2 = -erfc(Cerf * μpadq) / 2, erfc(Cerf * μmadq) / 2  # I2 to be multiplied by exp(g2shift) via g2
-    Iμ = integralwithsplitgaussian(
-        abs(μmadq), μpadq, sqrtdqi, quad, transform; kwargs...
-    ) do u
-        nu = apply(transform, u)
-        Jnu = jacobian(transform, u)
-        Gnu = evaluate(GJ, u) / Jnu
-        # gaussian envelope
-        g1 = gaussian(nu - μpadq, sqrtdqi; normalized=false)
-        # g2 = gaussian(nu + μmadq, sqrtdqi, g2shift; normalized=false)
-        g2 = g2coeff * gaussian(nu + μmadq, sqrtdqi; normalized=false)
-        # wrapped gaussian envelope
-        g1w = gaussian(-nu - μpadq, sqrtdqi; normalized=false)
-        # g2w = gaussian(-nu + μmadq, sqrtdqi, g2shift; normalized=false)
-        g2w = g2coeff * gaussian(-nu + μmadq, sqrtdqi; normalized=false)
-        return CJμ * Jnu * ((g1 + g2) * expm1(ai * Gnu) + (g1 + g1w) * I1 + (g2 + g2w) * I2)
+    C = Zinv * sqrt(oftype(sqrtdqi, π))
+    I1, I2 = -erfc(C * μpadq) / 2, erfc(C * μmadq) / 2  # to be multiplied by g2coeff via g2
+    Iμ = withsplitgaussianinflectionpoints(abs(μmadq), μpadq, sqrtdqi) do ips
+        @inline
+        withgtsorted(ips, 2sqrtdqi) do gtips
+            @inline
+            bps = applyinverse.((tf,), gtips)
+            integratewithapproximant(GJ, quad, bps; kwargs...) do u, GJu
+                nu, Jnu = apply(tf, u), applyjacobian(tf, u)
+                Gnu = GJu / Jnu
+                # gaussian envelope
+                g1 = gaussian(nu - μpadq, sqrtdqi; normalized=false)
+                g2 = g2coeff * gaussian(nu + μmadq, sqrtdqi; normalized=false)
+                # wrapped gaussian envelope
+                g1wrapped = gaussian(-nu - μpadq, sqrtdqi; normalized=false)
+                g2wrapped = g2coeff * gaussian(-nu + μmadq, sqrtdqi; normalized=false)
+                I12 = (g1 + g1wrapped) * I1 + (g2 + g2wrapped) * I2
+                return Jμ_Z * Jnu * (I12 + (g1 + g2) * expm1(ai * Gnu))
+            end
+        end
     end
     return Iμ, Jμ
 end
+
+function _Gnext_new(t, GJ::F, ai, sqrtdqi, quad; kwargs...) where {F}
+    Zinv = gaussnorm(sqrtdqi)
+    tf = gettransform(quad)
+    μ = apply(tf, t)
+    isinf(μ) && return zero(Zinv * μ), oneunit(μ)  # strictly speaking Jμ == Inf, but that's irrelevant and would result in a spurious NaN downstream
+    Jμ = applyjacobian(tf, t)
+    Jμ_Z = Zinv * Jμ
+    dqi = sqrtdqi^2
+    Iμ = withsplitgaussianinflectionpoints(abs(μ), sqrtdqi) do ips
+        @inline
+        withgtsorted(ips, 2sqrtdqi) do gtips
+            @inline
+            bps = applyinverse.((tf,), gtips)
+            integratewithapproximant(GJ, quad, bps; kwargs...) do u, GJu
+                nu, Jnu = apply(tf, u), applyjacobian(tf, u)
+                Gnu = GJu / Jnu
+                # gaussian envelope
+                g = wrappedgaussian(nu, μ, sqrtdqi; normalized=false)
+                return Jμ_Z * Jnu * g * expm1(ai * (Gnu + dℰ(rsbproblem, b + ai * dqi, μ, b, nu)))
+            end
+        end
+    end
+    return Iμ, Jμ
+end
+
+# TODO: figure out a better solution here; too much nesting and @inline required
+@inline function withgtsorted(f::F, vs::NTuple{N,Any}, vmin) where {F,N}
+    return (vmin <= first(vs)) ? f(vs) : withgtsorted(f, Base.tail(vs), vmin)
+end
+@inline withgtsorted(f::F, vs::NTuple{1}, vmin) where {F} = (vmin <= only(vs)) ? f(vs) : f(())
 
 # # TODO: submit two issues
 # # - Threads.@threads rule not thread safe does not ensure thread safety of the reverse pass

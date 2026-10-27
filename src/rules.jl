@@ -1,8 +1,8 @@
-module Patches
+module Rules
 
-### Implement other packages' missing pieces
+### Implement Enzyme rules for types from other packages
+### This is blatant type piracy and should ideally be fleshed out and upstreamed
 
-## Import rrule for AbstractFFTs.Plan into Enzyme
 using AbstractFFTs: AbstractFFTs
 using Enzyme: Enzyme, EnzymeRules, Const, Duplicated, make_zero, make_zero!
 
@@ -63,7 +63,7 @@ function EnzymeRules.reverse(
 end
 
 ## Implement AdjointStyle and adjoint_mul for ChebyshevTransformPlan
-## This makes ChebyshevTransformPlan differentiable via ChainRules
+## This makes ChebyshevTransformPlan differentiable via the generic AbstractFFTs.Plan rules
 using FastTransforms: FastTransforms
 using FFTW: FFTW
 
@@ -72,7 +72,9 @@ struct ChebyshevAdjointStyle <: AbstractFFTs.AdjointStyle end
 AbstractFFTs.AdjointStyle(::FastTransforms.ChebyshevTransformPlan) = ChebyshevAdjointStyle()
 
 function AbstractFFTs.adjoint_mul(
-    P::FastTransforms.ChebyshevTransformPlan{T,kind,K,inplace}, x::AbstractArray{T}, ::ChebyshevAdjointStyle
+    P::FastTransforms.ChebyshevTransformPlan{T,kind,K,inplace},
+    x::AbstractArray{T},
+    ::ChebyshevAdjointStyle,
 ) where {T,kind,K,inplace}
     # chebX_rescale! are symmetric operators, so only need to move from after transform to before
     y = inplace ? x : copy(x)
@@ -93,8 +95,12 @@ AbstractFFTs.AdjointStyle(::FFTW.r2rFFTWPlan) = R2RFFTAdjointStyle()
 function AbstractFFTs.adjoint_mul(
     p::FFTW.r2rFFTWPlan{T}, x::AbstractVector{T}, ::R2RFFTAdjointStyle
 ) where {T}
-    (length(p.kinds) == 1) || throw(ArgumentError("Multidimensional r2r transforms not yet supported"))
-    (only(p.kinds) == 5) || throw(ArgumentError("r2r kinds other than REDFT10 not yet supported"))
+    if length(p.kinds) != 1
+        throw(ArgumentError("Multidimensional r2r transforms not yet supported"))
+    end
+    if only(p.kinds) != 5
+        throw(ArgumentError("r2r kinds other than REDFT10 not yet supported"))
+    end
     dc = first(x)  # save this first in case p is in-place
     unscaled_pinv = inv(p).p
     y = unscaled_pinv * x

@@ -1,193 +1,4 @@
-abstract type AbstractTransform end
-
-(transform::AbstractTransform)(t) = apply(transform, t)
-getinverse(transform::AbstractTransform) = (x -> applyinverse(transform, x))
-getjacobian(transform::AbstractTransform) = (t -> jacobian(transform, t))
-
-struct Identity <: AbstractTransform end
-
-@inline apply(::Identity, t) = t
-@inline applyinverse(::Identity, x) = x
-@inline jacobian(::Identity, t) = one(t)
-
-## transform t ∈ [0, Inf) to x ∈ [0, Inf)
-struct Expm1{T} <: AbstractTransform
-    scale::T
-    function Expm1(scale)
-        if !(isfinite(scale) && (scale > zero(scale)))
-            throw(ArgumentError("require 0 < scale < Inf, got $scale"))
-        end
-        return new{typeof(scale)}(scale)
-    end
-end
-
-@inline function _check_t(::Expm1, t)
-    (t >= zero(t)) || throw(TransformError(zero(t), t, nothing, :t))
-    return nothing
-end
-@inline function _check_x(::Expm1, x)
-    (x >= zero(x)) || throw(TransformError(zero(x), x, nothing, :x))
-    return nothing
-end
-
-@inline apply(tf::Expm1, t) = (_check_t(tf, t); expm1(tf.scale * t))
-@inline applyinverse(tf::Expm1, x) = (_check_x(tf, x); log1p(x) / tf.scale)
-@inline jacobian(tf::Expm1, t) = (_check_t(tf, t); tf.scale * exp(tf.scale * t))
-
-struct DoubleExpm1{T} <: AbstractTransform
-    scale::T
-    function DoubleExpm1(scale)
-        if !(isfinite(scale) && (scale > zero(scale)))
-            throw(ArgumentError("require 0 < scale < Inf, got $scale"))
-        end
-        return new{typeof(scale)}(scale)
-    end
-end
-
-@inline function _check_t(::DoubleExpm1, t)
-    (t >= zero(t)) || throw(TransformError(zero(t), t, nothing, :t))
-    return nothing
-end
-@inline function _check_x(::DoubleExpm1, x)
-    (x >= zero(x)) || throw(TransformError(zero(x), x, nothing, :x))
-    return nothing
-end
-
-@inline apply(tf::DoubleExpm1, t) = (_check_t(tf, t); expm1(expm1(tf.scale * t)))
-@inline applyinverse(tf::DoubleExpm1, x) = (_check_x(tf, x); log1p(log1p(x)) / tf.scale)
-@inline jacobian(tf::DoubleExpm1, t) = (_check_t(tf, t); st = tf.scale * t; tf.scale * exp(st + expm1(st)))
-
-struct Sinh{T} <: AbstractTransform
-    scale::T
-    function Sinh(scale)
-        if !(isfinite(scale) && (scale > zero(scale)))
-            throw(ArgumentError("require 0 < scale < Inf, got $scale"))
-        end
-        return new{typeof(scale)}(scale)
-    end
-end
-
-@inline function _check_t(::Sinh, t)
-    (t >= zero(t)) || throw(TransformError(zero(t), t, nothing, :t))
-    return nothing
-end
-@inline function _check_x(::Sinh, x)
-    (x >= zero(x)) || throw(TransformError(zero(x), x, nothing, :x))
-    return nothing
-end
-
-@inline apply(tf::Sinh, t) = (_check_t(tf, t); sinh(tf.scale * t))
-@inline applyinverse(tf::Sinh, x) = (_check_x(tf, x); asinh(x) / tf.scale)
-@inline jacobian(tf::Sinh, t) = (_check_t(tf, t); tf.scale * cosh(tf.scale * t))
-
-struct DoubleSinh{T} <: AbstractTransform
-    scale::T
-    function DoubleSinh(scale)
-        if !(isfinite(scale) && (scale > zero(scale)))
-            throw(ArgumentError("require 0 < scale < Inf, got $scale"))
-        end
-        return new{typeof(scale)}(scale)
-    end
-end
-
-@inline function _check_t(::DoubleSinh, t)
-    (t >= zero(t)) || throw(TransformError(zero(t), t, nothing, :t))
-    return nothing
-end
-@inline function _check_x(::DoubleSinh, x)
-    (x >= zero(x)) || throw(TransformError(zero(x), x, nothing, :x))
-    return nothing
-end
-
-@inline apply(tf::DoubleSinh, t) = (_check_t(tf, t); sinh(sinh(tf.scale * t)))
-@inline applyinverse(tf::DoubleSinh, x) = (_check_x(tf, x); asinh(asinh(x)) / tf.scale)
-@inline jacobian(tf::DoubleSinh, t) = (_check_t(tf, t); st = tf.scale * t; tf.scale * cosh(st) * cosh(sinh(st)))
-
-struct Square{T} <: AbstractTransform
-    scale::T
-    function Square(scale)
-        if !(isfinite(scale) && (scale > zero(scale)))
-            throw(ArgumentError("require 0 < scale < Inf, got $scale"))
-        end
-        return new{typeof(scale)}(scale)
-    end
-end
-
-@inline function _check_t(::Square, t)
-    (t >= zero(t)) || throw(TransformError(zero(t), t, nothing, :t))
-    return nothing
-end
-@inline function _check_x(::Square, x)
-    (x >= zero(x)) || throw(TransformError(zero(x), x, nothing, :x))
-    return nothing
-end
-
-@inline apply(tf::Square, t) = (_check_t(tf, t); t + tf.scale * (t^2))
-@inline applyinverse(tf::Square, x) = (_check_x(tf, x); (sqrt(1 + 4tf.scale * x) - 1) / (2tf.scale))
-@inline jacobian(tf::Square, t) = (_check_t(tf, t); 1 + 2tf.scale * t)
-
-## transform t ∈ (a, b) to x ∈ (0, Inf)
-struct Halfstretch{stretch,T<:Real} <: AbstractTransform
-    a::T
-    b::T
-    scale::T
-    function Halfstretch{stretch}(a, b, scale) where {stretch}
-        if !(stretch in (:power, :exp, :tan, :tanpi))
-            throw(ArgumentError("stretch must be :exp, :power, :tan, or :tanpi, got $stretch")) #=lazy=#
-        end
-        a_, b_, scale_ = promote(a, b, scale)
-        if !(isfinite(a_) && isfinite(b_) && (a_ < b_))
-            throw(ArgumentError("require -Inf < a < b < Inf, got a = $a, b = $b")) #=lazy=#
-        end
-        if !(isfinite(scale_) && (scale_ > zero(scale_)))
-            throw(ArgumentError("require 0 < scale < Inf, got $scale")) #=lazy=#
-        end
-        return new{stretch,typeof(a_)}(a_, b_, scale_)
-    end
-end
-
-@inline function _check_t((; a, b)::Halfstretch, t)
-    (a <= t <= b) || throw(TransformError(a, t, b, :t))
-    return nothing
-end
-@inline function _check_x(::Halfstretch, x)
-    (x >= zero(x)) || throw(TransformError(zero(x), x, nothing, :x))
-    return nothing
-end
-
-@inline apply(tf::Halfstretch, t) = (_check_t(tf, t); _apply(tf, t))
-@inline applyinverse(tf::Halfstretch, x) = (_check_x(tf, x); _applyinv(tf, x))
-@inline jacobian(tf::Halfstretch, t) = (_check_t(tf, t); _jacobian(tf, t))
-
-# power: x = s * (t - a) / (b - t); t = (b * x + a * s) / (x + s); dx = dt * s / (b - t)^2
-@inline _apply((; a, b, scale)::Halfstretch{:power}, t) = scale * (t - a) / (b - t)
-@inline function _applyinv((; a, b, scale)::Halfstretch{:power}, x)
-    # guaranteed by constructors/checks: 0 < scale < Inf; -Inf < a < b < Inf; 0 <= x <= Inf
-    # thus (isinf(num) || isinf(den)) => (t == b); no further cases/signs to consider
-    num, den = (b * x + a * scale, x + scale)
-    return (isinf(num) || isinf(den)) ? (oftype(num, b) / oneunit(den)) : (num / den)
-end
-@inline _jacobian((; a, b, scale)::Halfstretch{:power}, t) = scale * (b - a) / ((b - t)^2)
-
-# exp: x = -s * log(1 + (a - t) / (b - a)); t = a + (b - a) * (1 - exp(-x / s)); dx = dt * s / (b - t)
-@inline _apply((; a, b, scale)::Halfstretch{:exp}, t) = -scale * log1p((a - t) / (b - a))
-@inline _applyinv((; a, b, scale)::Halfstretch{:exp}, x) = a + (a - b) * expm1(-x / scale)
-@inline _jacobian((; b, scale)::Halfstretch{:exp}, t) = scale / (b - t)
-
-# tanpi: x = s * tanpi((t - a) / 2(b - a)); t = a + 2(b - a) * atan(x / s) / π; dx = dt * s * π / (2(b - a) * (cospi((t - a) / 2(b - a))^2))
-@inline function _apply((; a, b, scale)::Halfstretch{:tanpi}, t)
-    s, c = sincospi((t - a) / (2(b - a)))  # don't use tanpi directly; lacks AD rule
-    return scale * s / c
-end
-@inline function _applyinv((; a, b, scale)::Halfstretch{:tanpi}, x)
-    arg = atan(x / scale) / π
-    return a + 2(b - a) * arg
-end
-@inline function _jacobian((; a, b, scale)::Halfstretch{:tanpi}, t)
-    d = 2(b - a)
-    return π * scale / (d * (cospi((t - a) / d)^2))
-end
-
+### Common error type
 struct TransformError{L,V,U} <: AbstractRSBException
     lower::L
     value::V
@@ -206,3 +17,161 @@ function Base.showerror(io::IO, (; lower, value, upper, symbol)::TransformError)
     print(io, "got $symbol = $value")
     return nothing
 end
+
+# TODO: It's universally assumed, both in implementations here and in other places in the
+# codebase, that transforms always have positive jacobian, i.e., won't change the "arrow" of
+# the real line and flip the order of integration limits. This is separately guaranteed by
+# each constructor; can we elevate this guarantee to some shared higher-up interface thing?
+# Or is the test suite the only place we can enforce such invariants across all subtypes?
+
+### Common private interface
+apply(tf::AbstractTransform, t::Real) = (_checkt(tf, t); _apply(tf, t))
+applyinverse(tf::AbstractTransform, x::Real) = (_checkx(tf, x); _applyinv(tf, x))
+applyjacobian(tf::AbstractTransform, t::Real) = (_checkt(tf, t); _applyjacobian(tf, t))
+
+### trivial
+struct Identity <: AbstractTransform end
+
+_checkt(::Identity, _) = nothing
+_checkx(::Identity, _) = nothing
+_apply(::Identity, t) = t
+_applyinverse(::Identity, x) = x
+_applyjacobian(::Identity, t) = one(t)
+
+## [a, b) -> [0, Inf); slope at t == a equals s / (b - a)
+struct IntervalToRplus{type,T<:Real} <: AbstractTransform
+    a::T
+    b::T
+    scale::T
+    function IntervalToRplus{type}(a, b, s) where {type}
+        # TODO: should we replace symbols with an enum for type?
+        validtypes = (:geometric, :log, :tan)
+        if !(type in validtypes)
+            throw(ArgumentError("type must be one of $validtypes; got type = $type")) #=lazy=#
+        end
+        a_, b_, s_ = promote(a, b, s)
+        if !(isfinite(a_) && isfinite(b_) && (a_ < b_))
+            throw(ArgumentError("require -Inf < a < b < Inf, got a = $a, b = $b")) #=lazy=#
+        end
+        if !(isfinite(s_) && (s_ > zero(s_)))
+            throw(ArgumentError("require 0 < s < Inf, got s = $s")) #=lazy=#
+        end
+        # precompute appropriate scale factor to achieve slope s / (b - a) at t == a
+        scale = if type === :geometric
+            s_ * (b_ - a_)
+        elseif type === :tan
+            (2s_) / π
+        else
+            s_
+        end
+        return new{type,typeof(a_)}(a_, b_, scale)
+    end
+end
+
+function _checkt((; a, b)::IntervalToRplus, t)
+    (a <= t <= b) || throw(TransformError(a, t, b, :t))
+    return nothing
+end
+function _checkx(::IntervalToRplus, x)
+    (x >= zero(x)) || throw(TransformError(zero(x), x, nothing, :x))
+    return nothing
+end
+
+## geometric
+## -  x = s * (b - a) * (t - a) / (b - t)
+## -  t = (b * x + a * s * (b - a)) / (x + s * (b - a))
+## - dx = dt * s * (b - a) / (b - t)^2
+## scale = s * (b - a)
+_apply((; a, b, scale)::IntervalToRplus{:geometric}, t) = scale * (t - a) / (b - t)
+function _applyinv((; a, b, scale)::IntervalToRplus{:geometric}, x)
+    # guaranteed by constructors/checks: 0 < scale < Inf; -Inf < a < b < Inf; 0 <= x <= Inf
+    # thus (isinf(num) || isinf(den)) => (t == b); no further cases/signs to consider
+    num, den = (b * x + a * scale, x + scale)
+    return (isinf(num) || isinf(den)) ? (oftype(num, b) / oneunit(den)) : (num / den)
+end
+function _applyjacobian((; a, b, scale)::IntervalToRplus{:geometric}, t)
+    return scale * (b - a) / ((b - t)^2)
+end
+
+## log
+## -  x = -s * log(1 + (a - t) / (b - a))
+## -  t = a + (b - a) * (1 - exp(-x / s))
+## - dx = dt * s / (b - t)
+## scale = s
+_apply((; a, b, scale)::IntervalToRplus{:log}, t) = -scale * log1p((a - t) / (b - a))
+_applyinv((; a, b, scale)::IntervalToRplus{:log}, x) = a + (a - b) * expm1(-x / scale)
+_applyjacobian((; b, scale)::IntervalToRplus{:log}, t) = scale / (b - t)
+
+## tan
+## -  x = (s / (π / 2)) * tan((π / 2) * (t - a) / (b - a))
+## -  t = a + (b - a) * atan(x / (s / (π / 2))) / (π / 2)
+## - dx = dt * s / ((b - a) * (cos((π / 2) * (t - a) / (b - a))^2))
+## scale = s / (π / 2)
+function _apply((; a, b, scale)::IntervalToRplus{:tan}, t)
+    si, co = sincospi((t - a) / (2(b - a)))  # don't use tanpi directly; lacks AD rule
+    return scale * si / co
+end
+function _applyinv((; a, b, scale)::IntervalToRplus{:tan}, x)
+    arg = atan(x / scale) / π
+    return a + 2(b - a) * arg
+end
+function _applyjacobian((; a, b, scale)::IntervalToRplus{:tan}, t)
+    d = 2(b - a)
+    return π * scale / (d * (cospi((t - a) / d)^2))
+end
+
+### [0, Inf) -> [0, Inf); slope at t == 0 equals s
+struct RplusToRplus{type,T<:Real} <: AbstractTransform
+    scale::T
+    function RplusToRplus{type}(s) where {type}
+        validtypes = (:linear, :quadratic, :exp, :sinh)
+        if !(type in validtypes)
+            throw(ArgumentError("type must be one of $validtypes; got type = $type")) #=lazy=#
+        end
+        if !(isfinite(s) && (s > zero(s)))
+            throw(ArgumentError("require 0 < s < Inf, got s = $s"))
+        end
+        return new{type,typeof(s)}(s)
+    end
+end
+
+function _checkt(::RplusToRplus, t)
+    (t >= zero(t)) || throw(TransformError(zero(t), t, nothing, :t))
+    return nothing
+end
+function _checkx(::RplusToRplus, x)
+    (x >= zero(x)) || throw(TransformError(zero(x), x, nothing, :x))
+    return nothing
+end
+
+## linear
+## -  x = s * t
+## -  t = x / s
+## - dx = dt * s
+_apply(tf::RplusToRplus{:linear}, t) = tf.scale * t
+_applyinverse(tf::RplusToRplus{:linear}, x) = x / tf.scale
+_applyjacobian(tf::RplusToRplus{:linear}, _) = tf.scale
+
+## quadratic
+## -  x = (s / 2) * ((1 + t)^2 - 1)
+## -  t = sqrt(1 + x / (s / 2)) - 1
+## - dx = dt * s * (1 + t)
+_apply(tf::RplusToRplus{:quadratic}, t) = tf.scale * t * (1 + (t / 2))
+_applyinverse(tf::RplusToRplus{:quadratic}, x) = expm1(log1p(2x / tf.scale) / 2)
+_applyjacobian(tf::RplusToRplus{:quadratic}, t) = tf.scale * (1 + t)
+
+## exp
+## -  x = s * (exp(t) - 1)
+## -  t = log(1 + x / s)
+## - dx = dt * s * exp(t)
+_apply(tf::RplusToRplus{:exp}, t) = tf.scale * expm1(t)
+_applyinverse(tf::RplusToRplus{:exp}, x) = log1p(x / tf.scale)
+_applyjacobian(tf::RplusToRplus{:exp}, t) = tf.scale * exp(t)
+
+## sinh
+## -  x = s * sinh(t)
+## -  t = asinh(x / s)
+## - dx = dt * s * cosh(t)
+_apply(tf::RplusToRplus{:sinh}, t) = sinh(t)
+_applyinverse(tf::RplusToRplus{:sinh}, x) = asinh(x / tf.scale)
+_applyjacobian(tf::RplusToRplus{:sinh}, t) = tf.scale * cosh(t)

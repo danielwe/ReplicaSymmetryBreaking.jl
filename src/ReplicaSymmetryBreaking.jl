@@ -5,7 +5,7 @@ using Enzyme:
     Reverse, ReverseSplitNoPrimal, ReverseSplitWidth,
     Annotation, Active, Const, Duplicated, DuplicatedNoNeed, MixedDuplicated,
     BatchDuplicated, BatchDuplicatedNoNeed, BatchMixedDuplicated,
-    autodiff, autodiff_thunk, make_zero, make_zero!, Forward  #, set_runtime_activity
+    autodiff, autodiff_thunk, make_zero, make_zero!
 
 function __init__()
     # Enzyme.Compiler.VERBOSE_ERRORS[] = true
@@ -22,78 +22,65 @@ function __init__()
 end
 
 using LinearAlgebra: LinearAlgebra, dot, mul!, norm, eigvals!, svd, svd!, QRIteration
-using LogExpFunctions: log1pexp
+using LogExpFunctions: log1pexp, logaddexp
 using SpecialFunctions: erfc
-using QuadGK: QuadGK, kronrod, quadgk
+using QuadGK: kronrod, quadgk
 using ApproxFun: ApproxFun, ApproxFunBase, Fun, Chebyshev, ChebyshevInterval, :(..), endpoints
-# using PCHIPInterpolation
-# using RationalFunctionApproximation
-# using RationalFunctionApproximation: Approximation
-# using ComplexRegions: Path, Segment
-# import ScopedValues
-# using StaticArrays: SVector
 using StaticArrays: MVector
 
 using Ipopt: AddIpoptIntOption, AddIpoptNumOption, AddIpoptStrOption, CreateIpoptProblem,
     IpoptSolve, SetIntermediateCallback
 
-using FiniteDifferences: grad, central_fdm
-
 # export GaussKronrod, QuadGKApproxFun, QuadGKPCHIP,
-export QuadGKAAA,
-    QuadGKChebyshev,
-    getlimits,
-    # getnodes,
+export QuadGK, ChebyshevInterpolator,
+    rsborder, inversetemp, externalfield, blockparams, overlapparams, limits,
     # countintegrandcalls,
-    Orderparameters, freeenergy, state, initstate,
-    # Workspace,
-    objective, optimize, optimize_sequence, SKProblem
+    Orderparameters, freeenergy, state,
+    # initstate,
+    initorderparameters,
+    objective, optimize, #  optimize_sequence,
+    orderparameters,
+    SKProblem
 
+# abstract types and interfaces
 include("abstract.jl")
-include("utils.jl")
-include("transforms.jl")
 
-include("orderparameters.jl")
-include("skproblem.jl")
-include("state.jl")
-
-include("gaussians.jl")
-# include("gausskronrod.jl")
-# include("quadgkchebyshev.jl")
-include("quadgkchebyshev2.jl")
-# include("quadgkpchip.jl")
-include("aaa.jl")
-include("quadgkaaa.jl")
-include("patches.jl")
-
+# free energy calculation
+include("rsbsolver.jl")
 include("freeenergy.jl")
+include("transforms.jl")
+include("gaussians.jl")
 
+# quadratures and approximants
+# include("gausskronrod.jl")
+include("quadgk.jl")
+include("chebyshev.jl")
+
+# optimization
 include("optimization.jl")
+include("state.jl")
+include("ipopt.jl")
+include("exceptionhandling.jl")
 
-using PrecompileTools: @compile_workload
+# problem types
+include("skproblem.jl")
+include("cimproblem.jl")
 
-@compile_workload begin
-    for T in [
-        Patches.FastTransforms.ChebyshevTransformPlan,
-        Patches.FFTW.r2rFFTWPlan,
-        SKProblem,
-        QuadGKChebyshev,
-        QuadGKAAA,
-        GaussianLeakError,
-        QuadGKChebyshevError,
-        OrderparametersError,
-    ]
-        EnzymeRules.inactive_type(T)
-    end
-    # for β in (10.0, Inf), cutoff in (50.0, Inf)
-    #     problem = SKProblem(; k=2, β)
-    #     quad = GaussKronrod(cutoff, 128; tol=16.0^(-9))
-    #     u0 = initstate(problem)
-    #     for ntasks in (1, 2, 4, 8)
-    #         ws = Workspace(problem, quad; ntasks)
-    #         nanobjective(u0, problem, quad, ws)
-    #     end
-    # end
-end
+# custom rules
+include("rules.jl")
+
+# using PrecompileTools: @compile_workload
+#
+# @compile_workload begin
+#     # for β in (10.0, Inf), cutoff in (50.0, Inf)
+#     #     problem = SKProblem(; k=2, β)
+#     #     quad = GaussKronrod(cutoff, 128; tol=16.0^(-9))
+#     #     u0 = initstate(problem)
+#     #     for ntasks in (1, 2, 4, 8)
+#     #         ws = Workspace(problem, quad; ntasks)
+#     #         nanobjective(u0, problem, quad, ws)
+#     #     end
+#     # end
+# end
 
 end  # module

@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.4
+# v0.20.21
 
 using Markdown
 using InteractiveUtils
@@ -48,49 +48,44 @@ ntasks = 1  # Threads.threadpoolsize()
 # ╔═╡ 907b7363-234d-46ae-aacd-6379017238dd
 begin
     problem = SKProblem(;
-        k=37,
+        k=12,
         β=Inf,
         # β=inv(0.25),
     )
-    op0 = Orderparameters(problem)
-    # op0 = let problem_2 = SKProblem(;
-    #        		k=2,
-    #        		β=Inf,
-    #        		# β=inv(0.25),
-    #    		), u0_2 = [0.11011, 0.312739, 0.126816, 0.289118]
-    # 	op0_2 = Orderparameters(problem_2, u0_2)
-    # 	a = [2op0_2.a[1]; op0_2.a]
-    # 	sqrtdqfirst = sqrt((op0_2.sqrtdq[2]^2) / 2)
-    # 	sqrtdq = [op0_2.sqrtdq[1]; sqrtdqfirst; sqrtdqfirst; op0_2.sqrtdq[3:end]]
-    # 	Orderparameters(a, sqrtdq)
-    # end
-    u0 = state(problem, op0)
-    ReplicaSymmetryBreaking.updateorderparameters!(op0, problem, u0)
-    @only_as_script @show op0
-    @only_as_script @show u0
-    (; op0, u0)
+    # u0 = initstate(problem)
+	# op0 = orderparameters(problem, u0)
+	op0 = initorderparameters(problem)
+    # @only_as_script @show u0
+	@only_as_script @show op0
+    # (; u0, op0)
+	op0
 end
+
+# ╔═╡ 305d710c-82c9-4db0-a516-429c17f976f6
+cheb = ChebyshevInterpolator{typeof(inversetemp(problem))}();
 
 # ╔═╡ 78830d31-fdf0-4a46-9856-08ecfa22d9a0
 begin
     quadorder = 13
-    quadoptions = (rtol=eps()^(7 // 8), stretch=:power)
+    quadoptions = (rtol=eps()^(7 // 8), transformtype=:geometric)
 end;
 
 # ╔═╡ f1a7902d-a98e-4572-8cf3-5df3893404b6
-quad = QuadGKChebyshev(quadorder; quadoptions...);
+quad = QuadGK(quadorder, cheb; quadoptions...);
 
 # ╔═╡ cab48286-823e-475c-ac76-874f17b3a80b
 # Quadrature sanity checks
-let integrate = ReplicaSymmetryBreaking.integrate, transform = ReplicaSymmetryBreaking.gettransform(quad)
+let
+	(; integrate) = ReplicaSymmetryBreaking
+	transform = ReplicaSymmetryBreaking.gettransform(quad)
     function f1(t)
         x = ReplicaSymmetryBreaking.apply(transform, t)
-        Jx = ReplicaSymmetryBreaking.jacobian(transform, t)
+        Jx = ReplicaSymmetryBreaking.applyjacobian(transform, t)
         return Jx * 3exp(-3abs(x))
     end
     function f2(t)
         x = ReplicaSymmetryBreaking.apply(transform, t)
-        Jx = ReplicaSymmetryBreaking.jacobian(transform, t)
+        Jx = ReplicaSymmetryBreaking.applyjacobian(transform, t)
         return Jx * exp(-π * x^2 / 4)
     end
     @show integrate(f1, quad)
@@ -98,35 +93,35 @@ let integrate = ReplicaSymmetryBreaking.integrate, transform = ReplicaSymmetryBr
 end;
 
 # ╔═╡ b46036e0-2a7f-491e-abef-c5c956493e3b
-# ╠═╡ disabled = true
-#=╠═╡
-let nodes = getnodes(quad)
-    @show nodes[end]
-    fig = Figure()
-    ax = Axis(fig[1, 1]; xlabel=L"$x$", ylabel=L"fraction of nodes below $|x|$")
-    stairs!(ax, [0; nodes], [0; cumsum(one.(nodes))] / length(nodes); step=:post)
-    vlines!(ax, nodes; color=(:gray, 0.25))
-    xlims!(ax, sort(flipsign.([-0.1, 10.1], cutoff(quad))))
-	@only_as_script display(fig)
-    fig
-end
-  ╠═╡ =#
+### for GaussKronrod only I think
+# let nodes = getnodes(quad)
+#     @show nodes[end]
+#     fig = Figure()
+#     ax = Axis(fig[1, 1]; xlabel=L"$x$", ylabel=L"fraction of nodes below $|x|$")
+#     stairs!(ax, [0; nodes], [0; cumsum(one.(nodes))] / length(nodes); step=:post)
+#     vlines!(ax, nodes; color=(:gray, 0.25))
+#     xlims!(ax, sort(flipsign.([-0.1, 10.1], cutoff(quad))))
+# 	@only_as_script display(fig)
+#     fig
+# end
 
 # ╔═╡ ba8b018b-ef61-4477-9406-a01e43d205fa
-# ws = Workspace(problem, quad; ntasks);
-op = Orderparameters(problem);
+# op = deepcopy(op0);
+u0 = ReplicaSymmetryBreaking.state(problem, op0);
 
 # ╔═╡ bf889797-59cf-4a0d-b2b0-8198c50a2d88
 let
     obj = begin
         # countintegrandcalls() do
         # objective(u0, problem, quad, ws)
-        objective(u0, problem, quad, op)
+        # objective(u0, problem, quad, op)
+		objective(u0, problem, quad)
         # end
     end
     @show obj
     # b = @benchmark objective($u0, $problem, $quad, $ws)
-    b = @benchmark objective($u0, $problem, $quad, $op)
+    # b = @benchmark objective($u0, $problem, $quad, $op)
+	b = @benchmark objective($u0, $problem, $quad)
     @only_as_script display(b)
     b
 end
@@ -135,28 +130,21 @@ end
 let
     du = zero(u0)
     # dobjective! = ReplicaSymmetryBreaking.make_dobjective(ws)
-    dobjective! = ReplicaSymmetryBreaking.make_dobjective(op)
+    # dobjective! = ReplicaSymmetryBreaking.make_dobjective(op)
+	dobjective! = ReplicaSymmetryBreaking.dobjective!
     # dobjective!(du, u0, problem, quad, ws)
-    dobjective!(du, u0, problem, quad, op)
+    # dobjective!(du, u0, problem, quad, op)
+	dobjective!(du, u0, problem, quad)
     @show du
     @show norm(du, Inf)
     b = @benchmark begin
         # $dobjective!($du, $u0, $problem, $quad, $ws)
-        $dobjective!($du, $u0, $problem, $quad, $op)
+        # $dobjective!($du, $u0, $problem, $quad, $op)
+		$dobjective!($du, $u0, $problem, $quad)
     end setup = (fill!($du, 0)) evals = 1
     @only_as_script display(b)
     b
 end
-
-# ╔═╡ 9c342e4e-4b50-4b9c-b576-607eb2016417
-# ╠═╡ disabled = true
-#=╠═╡
-let v=ReplicaSymmetryBreaking.Enzyme.onehot(u0)[1], Hv=similar(v)
-	hvpobjective! = ReplicaSymmetryBreaking.make_hvpobjective(u0, op)
-	@time hvpobjective!(Hv, v, u0, problem, quad, op)
-	Hv
-end
-  ╠═╡ =#
 
 # ╔═╡ b77c3cbd-8544-4eaa-97ae-fc492455ab06
 # ╠═╡ disabled = true
@@ -222,19 +210,10 @@ end
 (funknots, quadorder, quadscale)
   ╠═╡ =#
 
-# ╔═╡ 791c6fa7-69fb-44ef-b53b-8be6f937a7bb
-# ╠═╡ disabled = true
-#=╠═╡
-EnzymeTestUtils.test_reverse(
-	objective, Enzyme.Active,
-	(u_, Enzyme.Duplicated),
-	(problem, Enzyme.Const),
-	(quad_, Enzyme.Const),
-	(op_, Enzyme.Duplicated);
-	atol=16.0^(-10),
-	rtol=16.0^(-5),
-)
-  ╠═╡ =#
+# ╔═╡ 444d9618-037a-45ee-83d8-5c084bb0563f
+# mapping the s parameter in the block parameter transform to the number of
+# iterations for convergence at k = 37, β = Inf
+Dict("1/π" => 1572, "1/2" => 1390, "1" => 1302, "2" => 1179, "π" => 1363)
 
 # ╔═╡ bdba40e8-d461-44c7-b077-a58549331b3f
 function plot_orderparameters(problem, op)
@@ -263,30 +242,30 @@ function plot_tracefunctions(problem, quad, op; interval=(0.0 .. 3.0))
     fig = Figure()
     ax = Axis(fig[1, 1]; xlabel=L"\mu", ylabel=L"\mathcal{G}(\mu)")
 
-    (; apply, applyinverse, jacobian, gettransform, G0, Gmap) = ReplicaSymmetryBreaking
+    (; apply, applyinverse, applyjacobian, gettransform, G0, Gmap) = ReplicaSymmetryBreaking
 
     transform = gettransform(quad)
-    GJfirst(t) = G0(problem, apply(transform, t)) * jacobian(transform, t)
+    GJfirst(t) = G0(problem, apply(transform, t)) * applyjacobian(transform, t)
     # t0 = applyinverse(transform, 0.0)
     # J0 = jacobian(transform, t0)
     # @show GJfirst(t0) / J0
-    lines!(ax, interval, μ -> (t = applyinverse(transform, μ); GJfirst(t) / jacobian(transform, t)))
+    lines!(ax, interval, μ -> (t = applyinverse(transform, μ); GJfirst(t) / applyjacobian(transform, t)))
 
     GJ = Gmap(GJfirst, a[begin], sqrtdq[begin+1], quad)
     # @show GJ(t0) / J0
-    lines!(ax, interval, μ -> (t = applyinverse(transform, μ); GJ(t) / jacobian(transform, t)))
+    lines!(ax, interval, μ -> (t = applyinverse(transform, μ); GJ(t) / applyjacobian(transform, t)))
 
     arest, sqrtdqrest = @views (a[(begin+1):end], sqrtdq[(begin+2):(end-1)])
     for i in eachindex(arest, sqrtdqrest)
         GJ = ReplicaSymmetryBreaking.Gmap(GJ, arest[i], sqrtdqrest[i], quad)
         # @show GJ(t0) / J0
-        lines!(ax, interval, μ -> (t = applyinverse(transform, μ); GJ(t) / jacobian(transform, t)))
+        lines!(ax, interval, μ -> (t = applyinverse(transform, μ); GJ(t) / applyjacobian(transform, t)))
     end
     return fig
 end;
 
 # ╔═╡ 3a572f35-472e-481f-8c38-5d1453186e8c
-let interval = (7.23 .. 10.0)
+let interval = (7.245..10.0)
     fig = plot_tracefunctions(problem, quad, op0; interval)
     ylims!(-1e-15, 1e-15)
     @only_as_script display(fig)
@@ -295,17 +274,17 @@ end
 
 # ╔═╡ 69eede71-0051-4590-9f66-d0483dea0dd5
 function plot_tracefunctions_transformed(
-    problem, quad, op; interval=(..(getlimits(quad)...))
+    problem, quad, op; interval=(..(limits(quad)...))
 )
     (; a, sqrtdq) = op
 
     fig = Figure()
     ax = Axis(fig[1, 1]; xlabel=L"\mu", ylabel=L"\mathcal{G}(\mu)")
 
-    (; apply, applyinverse, jacobian, gettransform, G0, Gmap) = ReplicaSymmetryBreaking
+    (; apply, applyinverse, applyjacobian, gettransform, G0, Gmap) = ReplicaSymmetryBreaking
 
     transform = gettransform(quad)
-    GJfirst(t) = G0(problem, apply(transform, t)) * jacobian(transform, t)
+    GJfirst(t) = G0(problem, apply(transform, t)) * applyjacobian(transform, t)
     # t0 = applyinverse(transform, 0.0)
     # @show GJfirst(t0)
     lines!(ax, interval, t -> GJfirst(t))
@@ -324,7 +303,7 @@ function plot_tracefunctions_transformed(
 end;
 
 # ╔═╡ bf8ed7ad-9424-4900-878c-99347ee4828e
-let interval = (0.743 .. 1.0)
+let interval = (0.76..1.0)
     fig = plot_tracefunctions_transformed(problem, quad, op0; interval)
     ylims!(-1e-15, 1e-15)
     @only_as_script display(fig)
@@ -382,19 +361,19 @@ begin
     # Find the lowest-order quadrature that reproducibly achieves the required
     # tolerance throughout the optimization
     us, unans, times = Dict(), Dict(), Dict()
-    lm = 2.0^4
+    # lm = 2.0^4
     let callback = ProgressCallback(problem), ipoptions = (
             tol=eps()^(11 // 12),
-            acceptable_tol=eps()^(5 // 6),
-            acceptable_obj_change_tol=eps()^(5 // 6),
-            acceptable_iter=0,  #2^4,
-            limited_memory_init_val_min=lm * sqrt(eps()),
-            limited_memory_init_val=lm,
-            limited_memory_init_val_max=lm / sqrt(eps()),
-            # limited_memory_max_history=16,
-            max_wall_time=32400.0,
-            max_iter=10000,
-            print_level=5,
+            # acceptable_tol=eps()^(5 // 6),
+            # acceptable_obj_change_tol=eps()^(11 // 12),
+            # acceptable_iter=2^4,
+            # limited_memory_init_val_min=lm * sqrt(eps()),
+            # limited_memory_init_val=lm,
+            # limited_memory_init_val_max=lm / sqrt(eps()),
+            limited_memory_max_history=2^14,
+            max_wall_time=8 * 3600.0,
+            max_iter=2^14,
+            print_level=4,
             output_file="ipopt.log",
             file_print_level=5,
             # derivative_test="first-order",
@@ -403,14 +382,15 @@ begin
         # for scale in sqrt(2.0), quadorder in 13, funknots in 128
         quadconfig = (; quadorder)
         @info quadconfig
-        quad = QuadGKChebyshev(quadconfig...; quadoptions...)
+        quad = QuadGK(quadconfig..., cheb; quadoptions...)
         try
             times[quadconfig] = @elapsed for _ in 1:1  # 3x for robustness
                 reset!(callback)
                 # u = optimize_sequence(
                 #     problem, quad;
                 u = optimize(
-                    problem, quad, u0;
+                    # problem, quad, u0;
+					problem, quad, op0;
                     # ntasks,
                     warn_on_handled_exceptions=true, callback, ipoptions...,
                 )
@@ -454,10 +434,10 @@ end
 # ╔═╡ 01b947d1-287f-4079-a23d-56e38c540100
 begin
     quadconfig_ = first(keys(us))  # first(keys(times))
-    quad_ = QuadGKChebyshev(quadconfig_...; quadoptions...)
+    quad_ = QuadGK(quadconfig_..., cheb; quadoptions...)
     # ws_ = Workspace(problem, quad_; ntasks)
     u_ = first(us[quadconfig_])
-    op_ = Orderparameters(problem, u_)
+    op_ = orderparameters(problem, u_)
     @only_as_script @show quadconfig_
     @only_as_script @show u_
     @only_as_script @show op_
@@ -488,15 +468,17 @@ end
 
 # ╔═╡ 438b7e14-1ccc-4bd1-bc38-84faaf2ca1ec
 let
-    obj_ = objective(u_, problem, quad_, op_)
+    obj_ = objective(u_, problem, quad_)
     @only_as_script @show obj_
     obj_
 end
 
 # ╔═╡ f2d0316c-35c2-4aaf-9ba9-9de5e08d3c23
 let du_ = zero(u_)
-    dobjective! = ReplicaSymmetryBreaking.make_dobjective(op_)
-    dobjective!(du_, u_, problem, quad_, op_)
+    # dobjective! = ReplicaSymmetryBreaking.make_dobjective(op_)
+	dobjective! = ReplicaSymmetryBreaking.dobjective!
+    # dobjective!(du_, u_, problem, quad_, op_)
+	dobjective!(du_, u_, problem, quad_)
     @only_as_script @show du_
     @only_as_script @show norm(du_, Inf)
     (; du_, norm=norm(du_, Inf))
@@ -518,7 +500,7 @@ let
 end
 
 # ╔═╡ aedf3f12-a426-4f08-b3ae-9a04bbc91e5e
-let interval = (6.9 .. 10.0)
+let interval = (6.94..10.0)
     fig = plot_tracefunctions(problem, quad_, op_; interval)
     ylims!(-1e-15, 1e-15)
     @only_as_script display(fig)
@@ -527,18 +509,34 @@ let interval = (6.9 .. 10.0)
 end
 
 # ╔═╡ 26252945-58a9-4b7d-a8ee-403aa54dc8a3
-let interval = (0.761 .. 1.0)
+let interval = (0.759..1.0)
     fig = plot_tracefunctions_transformed(problem, quad_, op_; interval)
     ylims!(-1e-15, 1e-15)
     @only_as_script display(fig)
     fig
 end
 
+# ╔═╡ 791c6fa7-69fb-44ef-b53b-8be6f937a7bb
+# ╠═╡ disabled = true
+#=╠═╡
+EnzymeTestUtils.test_reverse(
+	objective, Enzyme.Active,
+	(u_, Enzyme.Duplicated),
+	(problem, Enzyme.Const),
+	(quad_, Enzyme.Const),
+	(op_, Enzyme.Duplicated);
+	atol=16.0^(-10),
+	rtol=16.0^(-5),
+)
+  ╠═╡ =#
+
 # ╔═╡ 4a14560b-2a4a-477d-b882-906c06a03504
 objectives_ = vcat((
-    let quad__ = QuadGKChebyshev(quadconfig__...; quadoptions...)
-        op__ = Orderparameters(problem)
-        [objective(u__, problem, quad__, op__) for u__ in us__]
+    let quad__ = QuadGK(quadconfig__..., cheb; quadoptions...)
+        [
+			objective(u__, problem, quad__)  #, orderparameters(problem, u__))
+			for u__ in us__
+		]
     end
     for (quadconfig__, us__) in us
 )...)
@@ -557,6 +555,7 @@ objectivemax_ - minimum(objectives_)
 # ╠═2398a4a2-492c-11ef-024d-0bd270e9187a
 # ╠═907b7363-234d-46ae-aacd-6379017238dd
 # ╠═bb3f40b4-38be-440c-b04f-e24f52a561b1
+# ╠═305d710c-82c9-4db0-a516-429c17f976f6
 # ╠═78830d31-fdf0-4a46-9856-08ecfa22d9a0
 # ╠═f1a7902d-a98e-4572-8cf3-5df3893404b6
 # ╠═cab48286-823e-475c-ac76-874f17b3a80b
@@ -564,13 +563,13 @@ objectivemax_ - minimum(objectives_)
 # ╠═ba8b018b-ef61-4477-9406-a01e43d205fa
 # ╠═bf889797-59cf-4a0d-b2b0-8198c50a2d88
 # ╠═edb403f7-1b49-4312-b0e5-81eed91bf24b
-# ╠═9c342e4e-4b50-4b9c-b576-607eb2016417
 # ╠═b77c3cbd-8544-4eaa-97ae-fc492455ab06
 # ╠═cdc7474e-af4a-4120-ba4e-6c095a00ef68
 # ╠═3a572f35-472e-481f-8c38-5d1453186e8c
 # ╠═bf8ed7ad-9424-4900-878c-99347ee4828e
 # ╠═a1bac9d8-ccd8-4c5c-9c23-6a80b53311c9
 # ╠═c17b023d-f5d3-497c-8bf3-913e9d75f6fa
+# ╠═444d9618-037a-45ee-83d8-5c084bb0563f
 # ╠═753bba73-ccbf-426f-9e54-64f8f3bbe656
 # ╠═01b947d1-287f-4079-a23d-56e38c540100
 # ╠═b58543ee-106b-4414-9c1b-e6e626f2cd82

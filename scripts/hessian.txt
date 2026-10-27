@@ -1,0 +1,157 @@
+Error Unknown Type: <4 x {} addrspace(10)*>
+julia: /workspace/srcdir/Enzyme/enzyme/Enzyme/TypeAnalysis/TypeAnalysis.cpp:6242: TypeTree defaultTypeTreeForLLVM(llvm::Type*, llvm::Instruction*, bool): Assertion `0 && "Error Unknown Type: "' failed.
+
+[744101] signal (6.-6): Aborted
+in expression starting at /home/daniel/Documents/Arbeid/Projects/ReplicaSymmetryBreaking.jl/scripts/hessian.jl:38
+pthread_kill at /lib/x86_64-linux-gnu/libc.so.6 (unknown line)
+raise at /lib/x86_64-linux-gnu/libc.so.6 (unknown line)
+abort at /lib/x86_64-linux-gnu/libc.so.6 (unknown line)
+unknown function (ip: 0x79b61a42871a)
+__assert_fail at /lib/x86_64-linux-gnu/libc.so.6 (unknown line)
+defaultTypeTreeForLLVM at /workspace/srcdir/Enzyme/enzyme/Enzyme/TypeAnalysis/TypeAnalysis.cpp:6242
+visitCommonStore at /workspace/srcdir/Enzyme/enzyme/Enzyme/AdjointGenerator.h:1031
+handleAdjointForIntrinsic at /workspace/srcdir/Enzyme/enzyme/Enzyme/AdjointGenerator.h:3733
+visitIntrinsicInst at /workspace/srcdir/Enzyme/enzyme/Enzyme/AdjointGenerator.h:3689
+visit at /opt/x86_64-linux-gnu/x86_64-linux-gnu/sys-root/usr/local/include/llvm/IR/InstVisitor.h:111 [inlined]
+CreateForwardDiff at /workspace/srcdir/Enzyme/enzyme/Enzyme/EnzymeLogic.cpp:4941
+recursivelyHandleSubfunction at /workspace/srcdir/Enzyme/enzyme/Enzyme/AdjointGenerator.h:4962
+visitCallInst at /workspace/srcdir/Enzyme/enzyme/Enzyme/AdjointGenerator.h:6542
+visit at /opt/x86_64-linux-gnu/x86_64-linux-gnu/sys-root/usr/local/include/llvm/IR/InstVisitor.h:111 [inlined]
+CreateForwardDiff at /workspace/srcdir/Enzyme/enzyme/Enzyme/EnzymeLogic.cpp:4941
+recursivelyHandleSubfunction at /workspace/srcdir/Enzyme/enzyme/Enzyme/AdjointGenerator.h:4962
+visitCallInst at /workspace/srcdir/Enzyme/enzyme/Enzyme/AdjointGenerator.h:6542
+visit at /opt/x86_64-linux-gnu/x86_64-linux-gnu/sys-root/usr/local/include/llvm/IR/InstVisitor.h:111 [inlined]
+CreateForwardDiff at /workspace/srcdir/Enzyme/enzyme/Enzyme/EnzymeLogic.cpp:4941
+EnzymeCreateForwardDiff at /workspace/srcdir/Enzyme/enzyme/Enzyme/CApi.cpp:602
+EnzymeCreateForwardDiff at /home/daniel/.julia/packages/Enzyme/YWQiS/src/api.jl:177
+unknown function (ip: 0x79b5ff06297a)
+_jl_invoke at /cache/build/builder-amdci4-4/julialang/julia-release-1-dot-10/src/gf.c:2895 [inlined]
+ijl_apply_generic at /cache/build/builder-amdci4-4/julialang/julia-release-1-dot-10/src/gf.c:3077
+enzyme! at /home/daniel/.julia/packages/Enzyme/YWQiS/src/compiler.jl:4110
+unknown function (ip: 0x79b5ff061298)
+_jl_invoke at /cache/build/builder-amdci4-4/julialang/julia-release-1-dot-10/src/gf.c:2895 [inlined]
+ijl_apply_generic at /cache/build/builder-amdci4-4/julialang/julia-release-1-dot-10/src/gf.c:3077
+#codegen#18952 at /home/daniel/.julia/packages/Enzyme/YWQiS/src/compiler.jl:6352
+codegen at /home/daniel/.julia/packages/Enzyme/YWQiS/src/compiler.jl:5539 [inlined]
+_thunk at /home/daniel/.julia/packages/Enzyme/YWQiS/src/compiler.jl:7153
+_thunk at /home/daniel/.julia/packages/Enzyme/YWQiS/src/compiler.jl:7153 [inlined]
+cached_compilation at /home/daniel/.julia/packages/Enzyme/YWQiS/src/compiler.jl:7194 [inlined]
+thunkbase at /home/daniel/.julia/packages/Enzyme/YWQiS/src/compiler.jl:7267
+unknown function (ip: 0x79b5ff005b10)
+_jl_invoke at /cache/build/builder-amdci4-4/julialang/julia-release-1-dot-10/src/gf.c:2895 [inlined]
+ijl_apply_generic at /cache/build/builder-amdci4-4/julialang/julia-release-1-dot-10/src/gf.c:3077
+#s2048#18999 at /home/daniel/.julia/packages/Enzyme/YWQiS/src/compiler.jl:7319 [inlined]
+#s2048#18999 at ./none:0
+_jl_invoke at /cache/build/builder-amdci4-4/julialang/julia-release-1-dot-10/src/gf.c:2895 [inlined]
+ijl_apply_generic at /cache/build/builder-amdci4-4/julialang/julia-release-1-dot-10/src/gf.c:3077
+GeneratedFunctionStub at ./boot.jl:602
+_jl_invoke at /cache/build/builder-amdci4-4/julialang/julia-release-1-dot-10/src/gf.c:2895 [inlined]
+ijl_apply_generic at /cache/build/builder-amdci4-4/julialang/julia-release-1-dot-10/src/gf.c:3077
+jl_call_staged at /cache/build/builder-amdci4-4/julialang/julia-release-1-dot-10/src/method.c:540
+ijl_code_for_staged at /cache/build/builder-amdci4-4/julialang/julia-release-1-dot-10/src/method.c:593
+get_staged at ./compiler/utilities.jl:123
+retrieve_code_info at ./compiler/utilities.jl:135 [inlined]
+InferenceState at ./compiler/inferencestate.jl:430
+typeinf_edge at ./compiler/typeinfer.jl:920
+abstract_call_method at ./compiler/abstractinterpretation.jl:629
+abstract_call_gf_by_type at ./compiler/abstractinterpretation.jl:95
+abstract_call_known at ./compiler/abstractinterpretation.jl:2087
+abstract_call at ./compiler/abstractinterpretation.jl:2169
+abstract_call at ./compiler/abstractinterpretation.jl:2162
+abstract_call at ./compiler/abstractinterpretation.jl:2354
+abstract_eval_call at ./compiler/abstractinterpretation.jl:2370
+abstract_eval_statement_expr at ./compiler/abstractinterpretation.jl:2380
+abstract_eval_statement at ./compiler/abstractinterpretation.jl:2624
+abstract_eval_basic_statement at ./compiler/abstractinterpretation.jl:2889
+typeinf_local at ./compiler/abstractinterpretation.jl:3098
+typeinf_nocycle at ./compiler/abstractinterpretation.jl:3186
+_typeinf at ./compiler/typeinfer.jl:247
+typeinf at ./compiler/typeinfer.jl:216
+typeinf_edge at ./compiler/typeinfer.jl:930
+abstract_call_method at ./compiler/abstractinterpretation.jl:629
+abstract_call_gf_by_type at ./compiler/abstractinterpretation.jl:95
+abstract_call_known at ./compiler/abstractinterpretation.jl:2087
+abstract_call at ./compiler/abstractinterpretation.jl:2169
+abstract_apply at ./compiler/abstractinterpretation.jl:1612
+abstract_call_known at ./compiler/abstractinterpretation.jl:2004
+abstract_call at ./compiler/abstractinterpretation.jl:2169
+abstract_call at ./compiler/abstractinterpretation.jl:2162
+abstract_call at ./compiler/abstractinterpretation.jl:2354
+abstract_eval_call at ./compiler/abstractinterpretation.jl:2370
+abstract_eval_statement_expr at ./compiler/abstractinterpretation.jl:2380
+abstract_eval_statement at ./compiler/abstractinterpretation.jl:2624
+abstract_eval_basic_statement at ./compiler/abstractinterpretation.jl:2913
+typeinf_local at ./compiler/abstractinterpretation.jl:3098
+typeinf_nocycle at ./compiler/abstractinterpretation.jl:3186
+_typeinf at ./compiler/typeinfer.jl:247
+typeinf at ./compiler/typeinfer.jl:216
+typeinf_edge at ./compiler/typeinfer.jl:930
+abstract_call_method at ./compiler/abstractinterpretation.jl:629
+abstract_call_gf_by_type at ./compiler/abstractinterpretation.jl:95
+abstract_call_known at ./compiler/abstractinterpretation.jl:2087
+abstract_call at ./compiler/abstractinterpretation.jl:2169
+abstract_call at ./compiler/abstractinterpretation.jl:2162
+abstract_call at ./compiler/abstractinterpretation.jl:2354
+abstract_eval_call at ./compiler/abstractinterpretation.jl:2370
+abstract_eval_statement_expr at ./compiler/abstractinterpretation.jl:2380
+abstract_eval_statement at ./compiler/abstractinterpretation.jl:2624
+abstract_eval_basic_statement at ./compiler/abstractinterpretation.jl:2913
+typeinf_local at ./compiler/abstractinterpretation.jl:3098
+typeinf_nocycle at ./compiler/abstractinterpretation.jl:3186
+_typeinf at ./compiler/typeinfer.jl:247
+typeinf at ./compiler/typeinfer.jl:216
+typeinf_edge at ./compiler/typeinfer.jl:930
+abstract_call_method at ./compiler/abstractinterpretation.jl:629
+abstract_call_gf_by_type at ./compiler/abstractinterpretation.jl:95
+abstract_call_known at ./compiler/abstractinterpretation.jl:2087
+abstract_call at ./compiler/abstractinterpretation.jl:2169
+abstract_call at ./compiler/abstractinterpretation.jl:2162
+abstract_call at ./compiler/abstractinterpretation.jl:2354
+abstract_eval_call at ./compiler/abstractinterpretation.jl:2370
+abstract_eval_statement_expr at ./compiler/abstractinterpretation.jl:2380
+abstract_eval_statement at ./compiler/abstractinterpretation.jl:2624
+abstract_eval_basic_statement at ./compiler/abstractinterpretation.jl:2913
+typeinf_local at ./compiler/abstractinterpretation.jl:3098
+typeinf_nocycle at ./compiler/abstractinterpretation.jl:3186
+_typeinf at ./compiler/typeinfer.jl:247
+typeinf at ./compiler/typeinfer.jl:216
+typeinf_ext at ./compiler/typeinfer.jl:1051
+typeinf_ext_toplevel at ./compiler/typeinfer.jl:1082
+typeinf_ext_toplevel at ./compiler/typeinfer.jl:1078
+jfptr_typeinf_ext_toplevel_35703.1 at /home/daniel/.julia/juliaup/julia-1.10.5+0.x64.linux.gnu/lib/julia/sys.so (unknown line)
+_jl_invoke at /cache/build/builder-amdci4-4/julialang/julia-release-1-dot-10/src/gf.c:2895 [inlined]
+ijl_apply_generic at /cache/build/builder-amdci4-4/julialang/julia-release-1-dot-10/src/gf.c:3077
+jl_apply at /cache/build/builder-amdci4-4/julialang/julia-release-1-dot-10/src/julia.h:1982 [inlined]
+jl_type_infer at /cache/build/builder-amdci4-4/julialang/julia-release-1-dot-10/src/gf.c:394
+jl_generate_fptr_impl at /cache/build/builder-amdci4-4/julialang/julia-release-1-dot-10/src/jitlayers.cpp:504
+jl_compile_method_internal at /cache/build/builder-amdci4-4/julialang/julia-release-1-dot-10/src/gf.c:2481 [inlined]
+jl_compile_method_internal at /cache/build/builder-amdci4-4/julialang/julia-release-1-dot-10/src/gf.c:2368
+_jl_invoke at /cache/build/builder-amdci4-4/julialang/julia-release-1-dot-10/src/gf.c:2887 [inlined]
+ijl_apply_generic at /cache/build/builder-amdci4-4/julialang/julia-release-1-dot-10/src/gf.c:3077
+macro expansion at ./timing.jl:279 [inlined]
+top-level scope at /home/daniel/Documents/Arbeid/Projects/ReplicaSymmetryBreaking.jl/scripts/hessian.jl:39
+jl_toplevel_eval_flex at /cache/build/builder-amdci4-4/julialang/julia-release-1-dot-10/src/toplevel.c:925
+jl_toplevel_eval_flex at /cache/build/builder-amdci4-4/julialang/julia-release-1-dot-10/src/toplevel.c:877
+ijl_toplevel_eval_in at /cache/build/builder-amdci4-4/julialang/julia-release-1-dot-10/src/toplevel.c:985
+eval at ./boot.jl:385 [inlined]
+include_string at ./loading.jl:2076
+_jl_invoke at /cache/build/builder-amdci4-4/julialang/julia-release-1-dot-10/src/gf.c:2895 [inlined]
+ijl_apply_generic at /cache/build/builder-amdci4-4/julialang/julia-release-1-dot-10/src/gf.c:3077
+_include at ./loading.jl:2136
+include at ./Base.jl:495
+jfptr_include_46447.1 at /home/daniel/.julia/juliaup/julia-1.10.5+0.x64.linux.gnu/lib/julia/sys.so (unknown line)
+_jl_invoke at /cache/build/builder-amdci4-4/julialang/julia-release-1-dot-10/src/gf.c:2895 [inlined]
+ijl_apply_generic at /cache/build/builder-amdci4-4/julialang/julia-release-1-dot-10/src/gf.c:3077
+exec_options at ./client.jl:318
+_start at ./client.jl:552
+jfptr__start_82798.1 at /home/daniel/.julia/juliaup/julia-1.10.5+0.x64.linux.gnu/lib/julia/sys.so (unknown line)
+_jl_invoke at /cache/build/builder-amdci4-4/julialang/julia-release-1-dot-10/src/gf.c:2895 [inlined]
+ijl_apply_generic at /cache/build/builder-amdci4-4/julialang/julia-release-1-dot-10/src/gf.c:3077
+jl_apply at /cache/build/builder-amdci4-4/julialang/julia-release-1-dot-10/src/julia.h:1982 [inlined]
+true_main at /cache/build/builder-amdci4-4/julialang/julia-release-1-dot-10/src/jlapi.c:582
+jl_repl_entrypoint at /cache/build/builder-amdci4-4/julialang/julia-release-1-dot-10/src/jlapi.c:731
+main at /cache/build/builder-amdci4-4/julialang/julia-release-1-dot-10/cli/loader_exe.c:58
+unknown function (ip: 0x79b61a429d8f)
+__libc_start_main at /lib/x86_64-linux-gnu/libc.so.6 (unknown line)
+unknown function (ip: 0x4010b8)
+Allocations: 70020051 (Pool: 69936242; Big: 83809); GC: 74
